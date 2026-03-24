@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
@@ -29,7 +28,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Plus, Trash2, Mail, CheckCircle, XCircle, Calendar, User, AlertCircle } from "lucide-react"
+import { Plus, Trash2, Mail, CheckCircle, XCircle, Calendar, User, AlertCircle, Loader2 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { PermissionGuard } from "@/components/permission-guard"
@@ -37,12 +36,12 @@ import { PermissionGuard } from "@/components/permission-guard"
 // Import our Firestore functions
 import { getPreApprovedEmailsListDb, addPreApprovedEmailDb, deletePreApprovedEmailDb } from "@/lib/storage"
 
-// FIX: Updated to use 'addedAt' to perfectly match Firestore
+// FIX: Updated to match Firestore schema exactly!
 type PreApprovedEmail = {
   id: string
   email: string
   isUsed: boolean
-  addedAt: string 
+  createdAt: string // Changed from addedAt to createdAt
   fullName?: string
 }
 
@@ -51,6 +50,7 @@ export default function ApprovedEmailsPage() {
   const [emails, setEmails] = useState<PreApprovedEmail[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isFetching, setIsFetching] = useState(true)
   const [emailsInput, setEmailsInput] = useState("")
   const [addResults, setAddResults] = useState<{ success: string[]; failed: string[] }>({ success: [], failed: [] })
 
@@ -60,38 +60,34 @@ export default function ApprovedEmailsPage() {
   }, [])
 
   const loadEmails = async () => {
+    setIsFetching(true)
     try {
       const preApprovedEmails = await getPreApprovedEmailsListDb()
-      setEmails(preApprovedEmails as PreApprovedEmail[])
+      // Sort by newest first
+      const sortedEmails = (preApprovedEmails as PreApprovedEmail[]).sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )
+      setEmails(sortedEmails)
     } catch (error) {
       console.error("Failed to load pre-approved emails:", error)
+      toast({ title: "Error", description: "Failed to load emails from database.", variant: "destructive" })
+    } finally {
+      setIsFetching(false)
     }
   }
 
   const handleAddEmails = async () => {
     if (!emailsInput.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please enter at least one email address",
-      })
+      toast({ variant: "destructive", title: "Error", description: "Please enter at least one email address" })
       return
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    const rawEmails = emailsInput
-      .split(/[\n,;\s]+/)
-      .map((e) => e.trim().toLowerCase())
-      .filter((e) => e.length > 0)
-    
+    const rawEmails = emailsInput.split(/[\n,;\s]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.length > 0)
     const uniqueEmails = [...new Set(rawEmails)]
 
     if (uniqueEmails.length === 0) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "No valid email addresses found",
-      })
+      toast({ variant: "destructive", title: "Error", description: "No valid email addresses found" })
       return
     }
 
@@ -99,46 +95,50 @@ export default function ApprovedEmailsPage() {
     const successEmails: string[] = []
     const failedEmails: string[] = []
 
-    // Fetch current emails to manually prevent duplicates
-    const currentEmailsList = await getPreApprovedEmailsListDb();
-    const currentEmailStrings = currentEmailsList.map(e => e.email.toLowerCase());
+    try {
+      // Fetch current emails to manually prevent duplicates
+      const currentEmailsList = await getPreApprovedEmailsListDb()
+      const currentEmailStrings = currentEmailsList.map(e => e.email.toLowerCase())
 
-    for (const email of uniqueEmails) {
-      if (!emailRegex.test(email)) {
-        failedEmails.push(`${email} (invalid format)`)
-        continue
-      }
-      
-      if (currentEmailStrings.includes(email)) {
-        failedEmails.push(`${email} (already exists)`)
-        continue
+      for (const email of uniqueEmails) {
+        if (!emailRegex.test(email)) {
+          failedEmails.push(`${email} (invalid format)`)
+          continue
+        }
+        
+        if (currentEmailStrings.includes(email)) {
+          failedEmails.push(`${email} (already exists)`)
+          continue
+        }
+
+        try {
+          await addPreApprovedEmailDb(email)
+          successEmails.push(email)
+        } catch (error: any) {
+          failedEmails.push(`${email} (${error.message || "failed"})`)
+        }
       }
 
-      try {
-        await addPreApprovedEmailDb(email)
-        successEmails.push(email)
-      } catch (error: any) {
-        failedEmails.push(`${email} (${error.message || "failed"})`)
+      setAddResults({ success: successEmails, failed: failedEmails })
+
+      if (successEmails.length > 0) {
+        toast({
+          title: "Emails Added",
+          description: `Successfully added ${successEmails.length} email${successEmails.length > 1 ? "s" : ""}${failedEmails.length > 0 ? `. ${failedEmails.length} failed.` : ""}`,
+        })
+        loadEmails() // Refresh the list
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "No emails were added. Check the results below.",
+        })
       }
+    } catch (error) {
+      toast({ variant: "destructive", title: "Database Error", description: "Could not connect to the database to add emails." })
+    } finally {
+      setIsLoading(false)
     }
-
-    setAddResults({ success: successEmails, failed: failedEmails })
-
-    if (successEmails.length > 0) {
-      toast({
-        title: "Emails Added",
-        description: `Successfully added ${successEmails.length} email${successEmails.length > 1 ? "s" : ""}${failedEmails.length > 0 ? `. ${failedEmails.length} failed.` : ""}`,
-      })
-      loadEmails() // Refresh the list
-    } else {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "No emails were added. Check the results below.",
-      })
-    }
-
-    setIsLoading(false)
   }
 
   const resetDialog = () => {
@@ -150,17 +150,15 @@ export default function ApprovedEmailsPage() {
   const handleRemoveEmail = async (id: string, email: string) => {
     try {
       await deletePreApprovedEmailDb(id)
-      toast({
-        title: "Success",
-        description: `Removed ${email} from pre-approved list`,
-      })
-      loadEmails() // Refresh the list
+      
+      // Optistically update UI for immediate feedback
+      setEmails(emails.filter(e => e.id !== id))
+      
+      toast({ title: "Success", description: `Removed ${email} from pre-approved list` })
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to remove email",
-      })
+      toast({ variant: "destructive", title: "Error", description: error.message || "Failed to remove email" })
+      // Reload just in case the optimistic update was wrong
+      loadEmails()
     }
   }
 
@@ -192,8 +190,7 @@ export default function ApprovedEmailsPage() {
             }}>
               <DialogTrigger asChild>
                 <Button className="bg-green-600 hover:bg-green-700">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Emails
+                  <Plus className="mr-2 h-4 w-4" /> Add Emails
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-[500px]">
@@ -251,6 +248,7 @@ export default function ApprovedEmailsPage() {
                     {addResults.success.length > 0 ? "Done" : "Cancel"}
                   </Button>
                   <Button onClick={handleAddEmails} disabled={isLoading || !emailsInput.trim()}>
+                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     {isLoading ? "Adding..." : "Add Emails"}
                   </Button>
                 </DialogFooter>
@@ -299,7 +297,12 @@ export default function ApprovedEmailsPage() {
               <CardDescription>All emails authorized to register for the scholarship program</CardDescription>
             </CardHeader>
             <CardContent>
-              {emails.length === 0 ? (
+              {isFetching ? (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin mb-4 text-green-600" />
+                  <p>Loading emails from database...</p>
+                </div>
+              ) : emails.length === 0 ? (
                 <div className="text-center py-8">
                   <Mail className="mx-auto h-12 w-12 text-muted-foreground" />
                   <h3 className="mt-2 text-sm font-semibold">No pre-approved emails</h3>
@@ -312,7 +315,6 @@ export default function ApprovedEmailsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Email Address</TableHead>
-                      <TableHead>Full Name</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Added Date</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -328,31 +330,16 @@ export default function ApprovedEmailsPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {email.fullName ? (
-                            <div className="flex items-center gap-2">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              {email.fullName}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">Not specified</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
                           {email.isUsed ? (
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                              Used
-                            </Badge>
+                            <Badge variant="secondary" className="bg-blue-100 text-blue-800">Used</Badge>
                           ) : (
-                            <Badge variant="default" className="bg-green-100 text-green-800">
-                              Available
-                            </Badge>
+                            <Badge variant="default" className="bg-green-100 text-green-800">Available</Badge>
                           )}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Calendar className="h-4 w-4" />
-                            {/* FIX: Now using addedAt! */}
-                            {formatDate(email.addedAt)}
+                            {formatDate(email.createdAt)}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
@@ -371,7 +358,7 @@ export default function ApprovedEmailsPage() {
                                 <AlertDialogTitle>Remove Pre-Approved Email</AlertDialogTitle>
                                 <AlertDialogDescription>
                                   Are you sure you want to remove <strong>{email.email}</strong> from the pre-approved
-                                  list? This action cannot be undone.
+                                  list? This action cannot be undone. If the student has already registered, their account will not be deleted, but they won't be able to register again.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>

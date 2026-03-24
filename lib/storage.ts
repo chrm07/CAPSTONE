@@ -119,7 +119,7 @@ export type PreApprovedEmail = {
   notes?: string
   status: "available" | "used"
   addedBy: string
-  addedAt: string
+  createdAt: string // Fixed from addedAt
   isUsed: boolean
   usedAt?: string
   usedBy?: string
@@ -291,7 +291,7 @@ export async function getPreApprovedEmailsListDb() {
     id: doc.id, 
     email: doc.data().email,
     isUsed: doc.data().isUsed,
-    addedAt: doc.data().addedAt, 
+    createdAt: doc.data().createdAt || doc.data().addedAt || new Date().toISOString(), // Fallback for old data
     fullName: doc.data().fullName || "" 
   }));
 }
@@ -301,7 +301,7 @@ export async function addPreApprovedEmailDb(email: string) {
   await addDoc(ref, { 
     email: email.toLowerCase(), 
     isUsed: false, 
-    addedAt: new Date().toISOString(), 
+    createdAt: new Date().toISOString(), 
     fullName: ""
   });
 }
@@ -321,32 +321,6 @@ export async function markEmailAsUsedDb(email: string) {
   }
 }
 
-// ==================== EMPTY STUBS FOR UNMIGRATED FEATURES ====================
-// These guarantee zero mock data while preventing compilation errors until we migrate them.
-
-export function getDocumentsByStudentId(studentId: string): Document[] { return [] }
-export function getApplicationHistoryByStudentId(studentId: string): ApplicationHistory[] { return [] }
-export function getVerificationSchedules(): VerificationSchedule[] { return [] }
-export function getFinancialDistributionScheduleForBarangay(barangay: string): FinancialDistributionSchedule | null { return null }
-export function hasStudentClaimed(studentId: string): boolean { return false }
-export function getClaimedRecord(studentId: string): any { return undefined }
-export function markNotificationAsRead(id: string): Notification | null { return null }
-export function markAllNotificationsAsRead(userId: string): void {}
-
-export function hasPermission(user: User | null, permission: string): boolean {
-  if (!user || user.role !== "admin") return false
-  const adminRole = user.adminRole || "head_admin"
-  return ADMIN_PERMISSIONS[adminRole]?.includes(permission) || false
-}
-
-export function getAdminRoleLabel(adminRole: AdminRole): string {
-  switch (adminRole) {
-    case "head_admin": return "Head Administrator"
-    case "verifier_staff": return "Verification Staff"
-    case "scanner_staff": return "QR Scanner Staff"
-    default: return "Staff"
-  }
-}
 // Fetch documents for a specific student
 export async function getDocumentsByStudentIdDb(studentId: string): Promise<Document[]> {
   const docsRef = collection(db, "documents");
@@ -378,6 +352,94 @@ export async function deleteDocumentDb(studentId: string, documentName: string) 
     await deleteDoc(doc(db, "documents", docId));
   }
 }
-export function getNotificationsByUserId(userId: string): Notification[] { 
-  return []; 
+
+// ==================== SCHEDULING FUNCTIONS ====================
+
+export async function getVerificationSchedulesDb(): Promise<VerificationSchedule[]> {
+  const q = query(collection(db, "verificationSchedules"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as VerificationSchedule))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
+
+export async function createVerificationScheduleDb(data: Omit<VerificationSchedule, "id" | "status" | "createdAt" | "updatedAt">): Promise<VerificationSchedule> {
+  const docRef = doc(collection(db, "verificationSchedules"));
+  const schedule: VerificationSchedule = {
+    ...data,
+    id: docRef.id,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  await setDoc(docRef, schedule);
+  return schedule;
+}
+
+export async function updateVerificationScheduleDb(id: string, data: Partial<VerificationSchedule>): Promise<void> {
+  await updateDoc(doc(db, "verificationSchedules", id), {
+    ...data,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+export async function deleteVerificationScheduleDb(id: string): Promise<void> {
+  await deleteDoc(doc(db, "verificationSchedules", id));
+}
+
+export async function getFinancialDistributionSchedulesDb(): Promise<FinancialDistributionSchedule[]> {
+  const q = query(collection(db, "financialSchedules"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({...doc.data(), id: doc.id} as FinancialDistributionSchedule))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function createFinancialDistributionScheduleDb(data: Omit<FinancialDistributionSchedule, "id" | "status" | "createdAt" | "updatedAt">): Promise<FinancialDistributionSchedule> {
+  const docRef = doc(collection(db, "financialSchedules"));
+  const schedule: FinancialDistributionSchedule = {
+    ...data,
+    id: docRef.id,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  await setDoc(docRef, schedule);
+  return schedule;
+}
+
+export async function updateFinancialDistributionScheduleDb(id: string, data: Partial<FinancialDistributionSchedule>): Promise<void> {
+  await updateDoc(doc(db, "financialSchedules", id), {
+    ...data,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+export async function deleteFinancialDistributionScheduleDb(id: string): Promise<void> {
+  await deleteDoc(doc(db, "financialSchedules", id));
+}
+
+// ==================== EMPTY STUBS FOR UNMIGRATED FEATURES ====================
+
+export function getApplicationHistoryByStudentId(studentId: string): ApplicationHistory[] { return [] }
+export function getFinancialDistributionScheduleForBarangay(barangay: string): FinancialDistributionSchedule | null { return null }
+export function hasStudentClaimed(studentId: string): boolean { return false }
+export function getClaimedRecord(studentId: string): any { return undefined }
+export function markNotificationAsRead(id: string): Notification | null { return null }
+export function markAllNotificationsAsRead(userId: string): void {}
+export function getNotificationsByUserId(userId: string): Notification[] { return []; }
+
+export function hasPermission(user: User | null, permission: string): boolean {
+  if (!user || user.role !== "admin") return false
+  const adminRole = user.adminRole || "head_admin"
+  return ADMIN_PERMISSIONS[adminRole]?.includes(permission) || false
+}
+
+export function getAdminRoleLabel(adminRole: AdminRole): string {
+  switch (adminRole) {
+    case "head_admin": return "Head Administrator"
+    case "verifier_staff": return "Verification Staff"
+    case "scanner_staff": return "QR Scanner Staff"
+    default: return "Staff"
+  }
+}
+export function getVerificationSchedules(): any[] { return [] }
+export function getDocumentsByStudentId(studentId: string): any[] { return [] }

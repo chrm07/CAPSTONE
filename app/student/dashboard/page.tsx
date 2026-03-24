@@ -9,21 +9,20 @@ import { StudentLayout } from "@/components/student-layout"
 import { ApplicationStatus } from "@/components/application-status"
 import { useAuth } from "@/contexts/auth-context"
 
-// NEW: Import our Firestore function
-import { getStudentApplicationDb } from "@/lib/storage"
-
+// IMPORT ONLY THE UPDATED FIRESTORE FUNCTIONS
 import {
-  getDocumentsByStudentId,
-  getApplicationHistoryByStudentId,
-  getVerificationSchedules,
-  getFinancialDistributionScheduleForBarangay,
-  hasStudentClaimed,
-  getClaimedRecord,
+  getStudentApplicationDb,
+  getVerificationSchedulesDb,
+  getFinancialDistributionSchedulesDb,
+  getApplicationHistoryByStudentId, // Stub
+  hasStudentClaimed,                // Stub
+  getClaimedRecord,                 // Stub
   type StudentProfile,
   type VerificationSchedule,
   type FinancialDistributionSchedule,
   type Application,
 } from "@/lib/storage"
+
 import {
   FileText,
   Calendar,
@@ -147,36 +146,38 @@ export default function StudentDashboard() {
 
   const [currentApplication, setCurrentApplication] = useState<Application | null>(null)
   const [applicationHistory, setApplicationHistory] = useState<any[]>([])
+  
+  // Real Firestore States
   const [verificationSchedule, setVerificationSchedule] = useState<VerificationSchedule | null>(null)
   const [scheduleStatus, setScheduleStatus] = useState<"active" | "ended" | "upcoming" | "none">("none")
   const [financialSchedule, setFinancialSchedule] = useState<FinancialDistributionSchedule | null>(null)
   const [financialScheduleStatus, setFinancialScheduleStatus] = useState<"active" | "ended" | "upcoming" | "none">("none")
+  
   const [hasClaimed, setHasClaimed] = useState(false)
   const [claimedDate, setClaimedDate] = useState<string | null>(null)
 
-  // Use an async function inside useEffect to handle the Firestore call
   useEffect(() => {
     const fetchDashboardData = async () => {
       if (user) {
-        // Mock data logic (Will safely return empty/false for now)
+        // Stub data logic
         const claimed = hasStudentClaimed(user.id)
         setHasClaimed(claimed)
         if (claimed) {
           const record = getClaimedRecord(user.id)
-          if (record) {
-            setClaimedDate(record.odeclaimedAt)
-          }
+          if (record) setClaimedDate(record.odeclaimedAt)
         }
         
         const history = getApplicationHistoryByStudentId(user.id)
         setApplicationHistory(history)
 
         const profile = user.profileData as StudentProfile
-        const studentBarangay = profile?.barangay || ""
 
-        // NEW: Fetch real application data from Firestore
+        // FETCH REAL APPLICATION
         try {
           const latestApplication = await getStudentApplicationDb(user.id)
+          
+          // 🔥 THE FIX: Get barangay from application first, then fallback to profile
+          const activeBarangay = latestApplication?.barangay || profile?.barangay || ""
 
           if (latestApplication) {
             setCurrentApplication(latestApplication)
@@ -190,7 +191,7 @@ export default function StudentDashboard() {
               applicationStatus: latestApplication.status,
               semester: "1st Semester",
               academicYear: "2023-2024",
-              barangay: studentBarangay,
+              barangay: activeBarangay,
             })
           } else {
             setCurrentApplication(null)
@@ -204,45 +205,52 @@ export default function StudentDashboard() {
               applicationStatus: "pending",
               semester: "1st Semester",
               academicYear: "2023-2024",
-              barangay: studentBarangay,
+              barangay: activeBarangay,
             })
           }
-        } catch (error) {
-          console.error("Error fetching student application from Firestore:", error)
-        }
 
-        // Mock schedule logic (Will safely return "none" for now)
-        if (studentBarangay) {
-          const schedules = getVerificationSchedules()
-          const matchingSchedule = schedules.find((schedule) => schedule.barangay === studentBarangay)
+          // FETCH REAL SCHEDULES
+          if (activeBarangay) {
+            const vSchedules = await getVerificationSchedulesDb()
+            const matchingVSchedule = vSchedules.find((s) => s.barangay === activeBarangay)
 
-          if (matchingSchedule) {
-            setVerificationSchedule(matchingSchedule)
-            const now = new Date()
-            const start = new Date(matchingSchedule.startDate)
-            const end = new Date(matchingSchedule.endDate)
+            if (matchingVSchedule) {
+              setVerificationSchedule(matchingVSchedule)
+              const now = new Date()
+              const start = new Date(matchingVSchedule.startDate)
+              const end = new Date(matchingVSchedule.endDate)
+              end.setHours(23, 59, 59, 999) // End of the day
 
-            if (now < start) setScheduleStatus("upcoming")
-            else if (now > end) setScheduleStatus("ended")
-            else setScheduleStatus("active")
+              if (now < start) setScheduleStatus("upcoming")
+              else if (now > end) setScheduleStatus("ended")
+              else setScheduleStatus("active")
+            } else {
+              setScheduleStatus("none")
+            }
+
+            const fSchedules = await getFinancialDistributionSchedulesDb()
+            // Check if the student's barangay is in the array of the financial schedule
+            const matchingFSchedule = fSchedules.find((s) => s.barangays.includes(activeBarangay))
+
+            if (matchingFSchedule) {
+              setFinancialSchedule(matchingFSchedule)
+              const now = new Date()
+              const start = new Date(matchingFSchedule.startDate)
+              const end = new Date(matchingFSchedule.endDate)
+              end.setHours(23, 59, 59, 999) // End of the day
+
+              if (now < start) setFinancialScheduleStatus("upcoming")
+              else if (now > end) setFinancialScheduleStatus("ended")
+              else setFinancialScheduleStatus("active")
+            } else {
+              setFinancialScheduleStatus("none")
+            }
           } else {
             setScheduleStatus("none")
-          }
-
-          const financialDistributionSchedule = getFinancialDistributionScheduleForBarangay(studentBarangay)
-
-          if (financialDistributionSchedule) {
-            setFinancialSchedule(financialDistributionSchedule)
-            const now = new Date()
-            const start = new Date(financialDistributionSchedule.startDate)
-            const end = new Date(financialDistributionSchedule.endDate)
-
-            if (now < start) setFinancialScheduleStatus("upcoming")
-            else if (now > end) setFinancialScheduleStatus("ended")
-            else setFinancialScheduleStatus("active")
-          } else {
             setFinancialScheduleStatus("none")
           }
+        } catch (error) {
+          console.error("Error fetching student dashboard data from Firestore:", error)
         }
       }
     }
@@ -320,9 +328,9 @@ export default function StudentDashboard() {
                     })}
                   </span>
                 </p>
-                {verificationSchedule.dailyLimit && (
+                {verificationSchedule.dailyLimit ? (
                   <p className="text-sm">Daily limit: {verificationSchedule.dailyLimit} students</p>
-                )}
+                ) : null}
                 <p className="mt-3 pt-3 border-t border-green-200 text-sm">
                   <strong>Reminder:</strong> Please bring your original documents to the Municipal Hall for verification
                   during the scheduled period.
