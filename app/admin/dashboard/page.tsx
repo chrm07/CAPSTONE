@@ -1,141 +1,17 @@
-"use client"
-
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { AdminLayout } from "@/components/admin-layout"
-import { getStatistics, getUsers, getApplications } from "@/lib/storage"
 import { FileText, Clock, LayoutDashboard, CheckCircle, XCircle, Calendar } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+// Import ONLY the new Firestore functions
+import { getDashboardStatsDb, getRecentApplicationsDb } from "@/lib/firestore"
 
-export default function AdminDashboard() {
-  const [stats, setStats] = useState({
-    totalApplications: 0,
-    pendingApplications: 0,
-    approvedApplications: 0,
-    rejectedApplications: 0,
-    totalScholars: 0,
-    totalFunds: 0,
-  })
-  const [recentApplications, setRecentApplications] = useState<any[]>([])
-  const [barangayData, setBarangayData] = useState<{ labels: string[]; data: number[] }>({
-    labels: [],
-    data: [],
-  })
-  const [courseData, setCourseData] = useState<{ labels: string[]; data: number[] }>({
-    labels: [],
-    data: [],
-  })
-  const [yearLevelData, setYearLevelData] = useState<{ labels: string[]; data: number[] }>({
-    labels: ["1st Year", "2nd Year", "3rd Year", "4th Year"],
-    data: [0, 0, 0, 0],
-  })
+// Turn this into an async Server Component (Notice we removed "use client")
+export default async function AdminDashboard() {
+  // Fetch real data from Firestore directly on the server!
+  const stats = await getDashboardStatsDb()
+  const recentApplications = await getRecentApplicationsDb(10)
 
-  useEffect(() => {
-    // Get statistics from in-memory storage
-    const statistics = getStatistics()
-    setStats(statistics)
-
-    // Get applications for chart data
-    const applications = getApplications()
-    const users = getUsers().filter((user) => user.role === "student")
-
-    // Get recent applications (last 10, sorted by date)
-    const sortedApplications = applications
-      .sort(
-        (a, b) =>
-          new Date(b.submittedAt || b.createdAt || "").getTime() -
-          new Date(a.submittedAt || a.createdAt || "").getTime(),
-      )
-      .slice(0, 10)
-
-    setRecentApplications(sortedApplications)
-
-    // Process barangay data
-    const barangayCounts: Record<string, number> = {}
-    applications.forEach((app) => {
-      if (app.barangay) {
-        barangayCounts[app.barangay] = (barangayCounts[app.barangay] || 0) + 1
-      }
-    })
-
-    // If no applications with barangay data, try to get from user profiles
-    if (Object.keys(barangayCounts).length === 0) {
-      users.forEach((user) => {
-        const barangay = user.profileData?.barangay
-        if (barangay) {
-          barangayCounts[barangay] = (barangayCounts[barangay] || 0) + 1
-        }
-      })
-    }
-
-    // Sort barangays by count (descending)
-    const sortedBarangays = Object.entries(barangayCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5) // Take top 5
-
-    setBarangayData({
-      labels: sortedBarangays.map(([name]) => name),
-      data: sortedBarangays.map(([, count]) => count),
-    })
-
-    // Process course data
-    const courseCounts: Record<string, number> = {}
-    applications.forEach((app) => {
-      if (app.course) {
-        courseCounts[app.course] = (courseCounts[app.course] || 0) + 1
-      }
-    })
-
-    // If no applications with course data, try to get from user profiles
-    if (Object.keys(courseCounts).length === 0) {
-      users.forEach((user) => {
-        const course = user.profileData?.course
-        if (course) {
-          courseCounts[course] = (courseCounts[course] || 0) + 1
-        }
-      })
-    }
-
-    // Sort courses by count (descending)
-    const sortedCourses = Object.entries(courseCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6) // Take top 6
-
-    setCourseData({
-      labels: sortedCourses.map(([name]) => name),
-      data: sortedCourses.map(([, count]) => count),
-    })
-
-    // Process year level data
-    const yearLevels = ["1st Year", "2nd Year", "3rd Year", "4th Year"]
-    const yearCounts = [0, 0, 0, 0]
-
-    applications.forEach((app) => {
-      const yearIndex = yearLevels.findIndex((year) => app.yearLevel && app.yearLevel.includes(year.split(" ")[0]))
-      if (yearIndex !== -1) {
-        yearCounts[yearIndex]++
-      }
-    })
-
-    // If no applications with year level data, try to get from user profiles
-    if (yearCounts.every((count) => count === 0)) {
-      users.forEach((user) => {
-        const yearLevel = user.profileData?.yearLevel
-        if (yearLevel) {
-          const yearIndex = yearLevels.findIndex((year) => yearLevel.includes(year.split(" ")[0]))
-          if (yearIndex !== -1) {
-            yearCounts[yearIndex]++
-          }
-        }
-      })
-    }
-
-    setYearLevelData({
-      labels: yearLevels,
-      data: yearCounts,
-    })
-  }, [])
-
+  // Helper function to format dates
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleDateString("en-US", {
@@ -147,6 +23,7 @@ export default function AdminDashboard() {
     })
   }
 
+  // Helper functions for UI
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "approved":
