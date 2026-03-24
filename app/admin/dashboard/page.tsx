@@ -2,6 +2,7 @@ import { AdminLayout } from "@/components/admin-layout"
 import { FileText, Clock, LayoutDashboard, CheckCircle, XCircle, Calendar } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+
 // Import ONLY the new Firestore functions
 import { getDashboardStatsDb, getRecentApplicationsDb } from "@/lib/storage"
 
@@ -11,38 +12,20 @@ export default async function AdminDashboard() {
   const stats = await getDashboardStatsDb()
   const recentApplications = await getRecentApplicationsDb(10)
 
-  // Helper function to format dates
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  }
-
-  // Helper functions for UI
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "approved":
-        return <CheckCircle className="h-4 w-4 text-green-600" />
-      case "rejected":
-        return <XCircle className="h-4 w-4 text-red-600" />
-      default:
-        return <Clock className="h-4 w-4 text-amber-600" />
-    }
-  }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "approved":
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Approved</Badge>
-      case "rejected":
-        return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Rejected</Badge>
-      default:
-        return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Pending</Badge>
+  // Helper function to format dates safely
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "N/A"
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    } catch (e) {
+      return "Invalid Date"
     }
   }
 
@@ -137,7 +120,15 @@ export default async function AdminDashboard() {
                     className="flex items-center justify-between p-4 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-100/50 transition-colors"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-2">{getStatusIcon(application.status)}</div>
+                      <div className="flex items-center gap-2">
+                        {application.status === "approved" ? (
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                        ) : application.status === "rejected" ? (
+                          <XCircle className="h-5 w-5 text-red-600" />
+                        ) : (
+                          <Clock className="h-5 w-5 text-amber-600" />
+                        )}
+                      </div>
                       <div>
                         <h4 className="font-semibold text-slate-900">{application.fullName}</h4>
                         <div className="flex items-center gap-4 text-sm text-slate-600">
@@ -149,21 +140,27 @@ export default async function AdminDashboard() {
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    
+                    <div className="flex flex-col items-end gap-2">
                       <div className="text-right">
                         <div className="text-sm font-medium text-slate-900">
-                          {formatDate(application.submittedAt || application.createdAt || new Date().toISOString())}
+                          {formatDate(application.createdAt)}
                         </div>
                         <div className="text-xs text-slate-500">{application.barangay}</div>
                       </div>
-                      {getStatusBadge(application.status)}
+                      
+                      <Badge 
+                        variant={application.status === "approved" ? "success" : application.status === "rejected" ? "destructive" : "outline"}
+                      >
+                        {application.status.toUpperCase()}
+                      </Badge>
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="text-center py-8 text-slate-500">
                   <FileText className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-                  <p>No applications found</p>
+                  <p>No applications found in the database.</p>
                 </div>
               )}
             </div>
