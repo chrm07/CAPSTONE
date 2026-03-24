@@ -1,88 +1,72 @@
-import NextAuth from "next-auth"
+import NextAuth, { AuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
+// Import our new Firestore lookup function
+import { getUserByEmailDb } from "@/lib/firestore"
 
-// Mock users for demo purposes
-const users = [
-  {
-    id: "1",
-    name: "Juan Dela Cruz",
-    email: "student@example.com",
-    password: "Student123", // Changed from password123 to Student123
-    role: "student",
-  },
-  {
-    id: "2",
-    name: "Admin User",
-    email: "admin@example.com",
-    password: "Admin123", // Changed from password123 to Admin123
-    role: "admin",
-  },
-]
-
-export const authOptions = {
+export const authOptions: AuthOptions = {
   providers: [
     CredentialsProvider({
       name: "Credentials",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
+        password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
+          return null
+        }
+
         try {
-          if (!credentials?.email || !credentials?.password) {
-            return null
-          }
+          // 1. Fetch the user from Firestore
+          const user = await getUserByEmailDb(credentials.email)
 
-          const user = users.find((user) => user.email === credentials.email)
-
-          if (!user) {
-            return null
+          // 2. Check if user exists and passwords match
+          // (Note: We are keeping plain-text passwords for now to match your current setup. 
+          // In a future phase, we should add bcrypt hashing!)
+          if (user && user.password === credentials.password) {
+            // 3. Return the user object to NextAuth
+            return {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              role: user.role, 
+            }
           }
-
-          // Simple password check for demo
-          if (credentials.password !== user.password) {
-            return null
-          }
-
-          return {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-          }
+          
+          // Passwords didn't match or user wasn't found
+          return null
         } catch (error) {
           console.error("Auth error:", error)
           return null
         }
-      },
-    }),
+      }
+    })
   ],
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.role = user.role
-      }
-      return token
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.role = token.role
-      }
-      return session
-    },
-  },
   pages: {
     signIn: "/login",
-    error: "/login",
   },
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
-  secret: process.env.NEXTAUTH_SECRET || "THIS_IS_A_DEVELOPMENT_SECRET_CHANGE_IT",
-  debug: false, // Set to false in production
+  callbacks: {
+    // Append custom data (like ID and Role) to the JWT token
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = (user as any).role
+        token.id = user.id
+      }
+      return token
+    },
+    // Pass the token data into the active session so the client can read it
+    async session({ session, token }) {
+      if (token && session.user) {
+        (session.user as any).role = token.role;
+        (session.user as any).id = token.id;
+      }
+      return session
+    }
+  }
 }
 
 const handler = NextAuth(authOptions)
-
 export { handler as GET, handler as POST }

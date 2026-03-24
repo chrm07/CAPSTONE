@@ -44,3 +44,21 @@ export async function createApplicationDb(data: Omit<Application, "id" | "create
   
   return newApplication;
 }
+// Fetch a user by email for login/authentication
+export async function getUserByEmailDb(email: string): Promise<User | null> {
+  // Reference the 'users' collection
+  const usersRef = collection(db, "users");
+  
+  // Create a query to find the document where the email matches
+  const q = query(usersRef, where("email", "==", email));
+  const snapshot = await getDocs(q);
+
+  // If no user is found, return null
+  if (snapshot.empty) {
+    return null;
+  }
+
+  // Return the data of the first matched user document
+  const userDoc = snapshot.docs[0];
+  return userDoc.data() as User;
+}
