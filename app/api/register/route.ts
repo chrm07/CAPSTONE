@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-// Notice we are importing from our new firestore.ts file instead of storage.ts
-import { createUserDb, createApplicationDb, isEmailPreApprovedDb } from "@/lib/firestore"
+import { createUserDb, createApplicationDb, isEmailPreApprovedDb, markEmailAsUsedDb } from "@/lib/storage"
 
 export async function POST(request: Request) {
   try {
@@ -15,9 +14,7 @@ export async function POST(request: Request) {
     // AWAIT the database check
     const isApproved = await isEmailPreApprovedDb(email);
     
-    // TEMPORARY BYPASS FOR TESTING: 
-    // If you haven't manually added emails to Firestore yet, you can comment the block below out temporarily to test registration.
-    /*
+    // ENFORCE PRE-APPROVED EMAILS (Comments removed!)
     if (!isApproved) {
       return NextResponse.json(
         {
@@ -26,10 +23,9 @@ export async function POST(request: Request) {
         { status: 403 },
       )
     }
-    */
 
     try {
-      // Create user in Firestore (notice the 'await')
+      // Create user in Firestore
       const newUser = await createUserDb({
         name: fullName,
         email: email,
@@ -49,7 +45,7 @@ export async function POST(request: Request) {
         },
       })
 
-      // Create application in Firestore (notice the 'await')
+      // Create application in Firestore
       await createApplicationDb({
         studentId: newUser.id,
         fullName: fullName,
@@ -60,6 +56,9 @@ export async function POST(request: Request) {
         barangay: barangay || "",
         status: "pending",
       })
+
+      // NEW: Mark the email as used so it cannot be registered twice!
+      await markEmailAsUsedDb(email);
 
       return NextResponse.json({ success: true, message: "Registration successful" }, { status: 201 })
     } catch (error: any) {

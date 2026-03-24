@@ -8,8 +8,11 @@ import { Badge } from "@/components/ui/badge"
 import { StudentLayout } from "@/components/student-layout"
 import { ApplicationStatus } from "@/components/application-status"
 import { useAuth } from "@/contexts/auth-context"
+
+// NEW: Import our Firestore function
+import { getStudentApplicationDb } from "@/lib/storage"
+
 import {
-  getApplicationsByStudentId,
   getDocumentsByStudentId,
   getApplicationHistoryByStudentId,
   getVerificationSchedules,
@@ -80,20 +83,16 @@ function getTimelineSteps(application: Application | null, userId?: string) {
   ]
 
   if (!application) {
-    // No application yet - all steps pending
     return steps
   }
 
-  // Check if student has claimed their financial aid
   const hasClaimed = userId ? hasStudentClaimed(userId) : false
   const claimedRecord = userId ? getClaimedRecord(userId) : undefined
 
-  // Step 1: Application Submitted - always completed if application exists
   steps[0].status = "completed"
   steps[0].date = formatDate(application.submittedAt || application.createdAt)
 
   if (application.status === "pending") {
-    // Application is pending - verification is in progress
     steps[1].status = "current"
     steps[1].date = "In Progress"
     steps[2].status = "pending"
@@ -101,7 +100,6 @@ function getTimelineSteps(application: Application | null, userId?: string) {
     steps[3].status = "pending"
     steps[3].date = "Pending"
   } else if (application.status === "approved") {
-    // Application approved
     steps[1].status = "completed"
     steps[1].date = "Verified"
     steps[2].status = "completed"
@@ -109,26 +107,22 @@ function getTimelineSteps(application: Application | null, userId?: string) {
     steps[2].description = "Your application has been approved by the scholarship committee."
     
     if (hasClaimed) {
-      // Financial aid has been claimed
       steps[3].status = "completed"
       steps[3].date = claimedRecord ? formatDate(claimedRecord.odeclaimedAt) : "Claimed"
       steps[3].title = "Financial Aid Claimed"
       steps[3].description = "Congratulations! You have successfully received your scholarship funds."
     } else {
-      // Approved but not yet claimed
       steps[3].status = "current"
       steps[3].date = "Ready for release"
       steps[3].description = "You are eligible to receive your scholarship funds during the distribution schedule."
     }
   } else if (application.status === "rejected") {
-    // Application rejected
     steps[1].status = "completed"
     steps[1].date = "Reviewed"
     steps[2].status = "completed"
     steps[2].date = formatDate(application.updatedAt)
     steps[2].title = "Application Rejected"
-    steps[2].description =
-      application.feedback || "Your application was not approved. Please contact the office for more information."
+    steps[2].description = application.feedback || "Your application was not approved. Please contact the office for more information."
     steps[3].status = "pending"
     steps[3].date = "N/A"
   }
@@ -152,114 +146,108 @@ export default function StudentDashboard() {
   })
 
   const [currentApplication, setCurrentApplication] = useState<Application | null>(null)
-  const [applicationHistory, setApplicationHistory] = useState([])
+  const [applicationHistory, setApplicationHistory] = useState<any[]>([])
   const [verificationSchedule, setVerificationSchedule] = useState<VerificationSchedule | null>(null)
   const [scheduleStatus, setScheduleStatus] = useState<"active" | "ended" | "upcoming" | "none">("none")
   const [financialSchedule, setFinancialSchedule] = useState<FinancialDistributionSchedule | null>(null)
-  const [financialScheduleStatus, setFinancialScheduleStatus] = useState<"active" | "ended" | "upcoming" | "none">(
-    "none",
-  )
+  const [financialScheduleStatus, setFinancialScheduleStatus] = useState<"active" | "ended" | "upcoming" | "none">("none")
   const [hasClaimed, setHasClaimed] = useState(false)
   const [claimedDate, setClaimedDate] = useState<string | null>(null)
 
+  // Use an async function inside useEffect to handle the Firestore call
   useEffect(() => {
-    if (user) {
-      // Check if student has claimed their financial aid
-      const claimed = hasStudentClaimed(user.id)
-      setHasClaimed(claimed)
-      if (claimed) {
-        const record = getClaimedRecord(user.id)
-        if (record) {
-          setClaimedDate(record.odeclaimedAt)
-        }
-      }
-      
-      // Get student application data
-      const applications = getApplicationsByStudentId(user.id)
-      const documents = getDocumentsByStudentId(user.id)
-      const history = getApplicationHistoryByStudentId(user.id)
-      setApplicationHistory(history)
-
-      // Get student's barangay from profile
-      const profile = user.profileData as StudentProfile
-      const studentBarangay = profile?.barangay || ""
-
-      if (applications.length > 0) {
-        const latestApplication = applications[applications.length - 1]
-        setCurrentApplication(latestApplication)
-        setStudentData({
-          id: user.id,
-          name: user.profileData?.fullName || user.name,
-          email: user.profileData?.email || user.email,
-          course: latestApplication.course || user.profileData?.course || "",
-          yearLevel: latestApplication.yearLevel || user.profileData?.yearLevel || "",
-          school: latestApplication.school || user.profileData?.schoolName || "",
-          applicationStatus: latestApplication.status,
-          semester: "1st Semester",
-          academicYear: "2023-2024",
-          barangay: studentBarangay,
-        })
-      } else {
-        setCurrentApplication(null)
-        setStudentData({
-          id: user.id,
-          name: user.profileData?.fullName || user.name,
-          email: user.profileData?.email || user.email,
-          course: user.profileData?.course || "",
-          yearLevel: user.profileData?.yearLevel || "",
-          school: user.profileData?.schoolName || "",
-          applicationStatus: "pending",
-          semester: "1st Semester",
-          academicYear: "2023-2024",
-          barangay: studentBarangay,
-        })
-      }
-
-      if (studentBarangay) {
-        const schedules = getVerificationSchedules()
-        const matchingSchedule = schedules.find((schedule) => schedule.barangay === studentBarangay)
-
-        if (matchingSchedule) {
-          setVerificationSchedule(matchingSchedule)
-
-          // Determine current status based on dates
-          const now = new Date()
-          const start = new Date(matchingSchedule.startDate)
-          const end = new Date(matchingSchedule.endDate)
-
-          if (now < start) {
-            setScheduleStatus("upcoming")
-          } else if (now > end) {
-            setScheduleStatus("ended")
-          } else {
-            setScheduleStatus("active")
+    const fetchDashboardData = async () => {
+      if (user) {
+        // Mock data logic (Will safely return empty/false for now)
+        const claimed = hasStudentClaimed(user.id)
+        setHasClaimed(claimed)
+        if (claimed) {
+          const record = getClaimedRecord(user.id)
+          if (record) {
+            setClaimedDate(record.odeclaimedAt)
           }
-        } else {
-          setScheduleStatus("none")
+        }
+        
+        const history = getApplicationHistoryByStudentId(user.id)
+        setApplicationHistory(history)
+
+        const profile = user.profileData as StudentProfile
+        const studentBarangay = profile?.barangay || ""
+
+        // NEW: Fetch real application data from Firestore
+        try {
+          const latestApplication = await getStudentApplicationDb(user.id)
+
+          if (latestApplication) {
+            setCurrentApplication(latestApplication)
+            setStudentData({
+              id: user.id,
+              name: user.profileData?.fullName || user.name,
+              email: user.profileData?.email || user.email,
+              course: latestApplication.course || user.profileData?.course || "",
+              yearLevel: latestApplication.yearLevel || user.profileData?.yearLevel || "",
+              school: latestApplication.school || user.profileData?.schoolName || "",
+              applicationStatus: latestApplication.status,
+              semester: "1st Semester",
+              academicYear: "2023-2024",
+              barangay: studentBarangay,
+            })
+          } else {
+            setCurrentApplication(null)
+            setStudentData({
+              id: user.id,
+              name: user.profileData?.fullName || user.name,
+              email: user.profileData?.email || user.email,
+              course: user.profileData?.course || "",
+              yearLevel: user.profileData?.yearLevel || "",
+              school: user.profileData?.schoolName || "",
+              applicationStatus: "pending",
+              semester: "1st Semester",
+              academicYear: "2023-2024",
+              barangay: studentBarangay,
+            })
+          }
+        } catch (error) {
+          console.error("Error fetching student application from Firestore:", error)
         }
 
-        const financialDistributionSchedule = getFinancialDistributionScheduleForBarangay(studentBarangay)
+        // Mock schedule logic (Will safely return "none" for now)
+        if (studentBarangay) {
+          const schedules = getVerificationSchedules()
+          const matchingSchedule = schedules.find((schedule) => schedule.barangay === studentBarangay)
 
-        if (financialDistributionSchedule) {
-          setFinancialSchedule(financialDistributionSchedule)
+          if (matchingSchedule) {
+            setVerificationSchedule(matchingSchedule)
+            const now = new Date()
+            const start = new Date(matchingSchedule.startDate)
+            const end = new Date(matchingSchedule.endDate)
 
-          // Determine current status based on dates
-          const now = new Date()
-          const start = new Date(financialDistributionSchedule.startDate)
-          const end = new Date(financialDistributionSchedule.endDate)
-
-          if (now < start) {
-            setFinancialScheduleStatus("upcoming")
-          } else if (now > end) {
-            setFinancialScheduleStatus("ended")
+            if (now < start) setScheduleStatus("upcoming")
+            else if (now > end) setScheduleStatus("ended")
+            else setScheduleStatus("active")
           } else {
-            setFinancialScheduleStatus("active")
+            setScheduleStatus("none")
           }
-        } else {
-          setFinancialScheduleStatus("none")
+
+          const financialDistributionSchedule = getFinancialDistributionScheduleForBarangay(studentBarangay)
+
+          if (financialDistributionSchedule) {
+            setFinancialSchedule(financialDistributionSchedule)
+            const now = new Date()
+            const start = new Date(financialDistributionSchedule.startDate)
+            const end = new Date(financialDistributionSchedule.endDate)
+
+            if (now < start) setFinancialScheduleStatus("upcoming")
+            else if (now > end) setFinancialScheduleStatus("ended")
+            else setFinancialScheduleStatus("active")
+          } else {
+            setFinancialScheduleStatus("none")
+          }
         }
       }
     }
+
+    fetchDashboardData()
   }, [user])
 
   return (
@@ -542,42 +530,42 @@ export default function StudentDashboard() {
       <div className="space-y-6 animate-fade-in">
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           <div className="card-hover">
-            <Card className="overflow-hidden border border-green-100 shadow-md">
+            <Card className="overflow-hidden border border-green-100 shadow-md h-full">
               <div className="h-1.5 bg-gradient-to-r from-green-400 to-green-600"></div>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-gradient-to-r from-green-50 to-white">
                 <CardTitle className="text-sm font-medium">Application Status</CardTitle>
-<Badge
-  variant={
-  hasClaimed
-  ? "custom"
-  : studentData.applicationStatus === "approved"
-  ? "custom"
-  : studentData.applicationStatus === "rejected"
-  ? "destructive"
-  : "outline"
-  }
-  className={
-  hasClaimed
-  ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 shadow-sm"
-  : studentData.applicationStatus === "approved"
-  ? "bg-green-100 text-green-800 hover:bg-green-200 shadow-sm"
-  : studentData.applicationStatus === "rejected"
-  ? "shadow-sm"
-  : !currentApplication && applicationHistory.length > 0
-  ? "bg-blue-100 text-blue-800 hover:bg-blue-200 shadow-sm"
-  : "shadow-sm"
-  }
-  >
-  {hasClaimed
-  ? "Claimed"
-  : studentData.applicationStatus === "approved"
-  ? "Approved"
-  : studentData.applicationStatus === "rejected"
-  ? "Rejected"
-  : !currentApplication && applicationHistory.length > 0
-  ? "Ready to Apply"
-  : "Pending"}
-  </Badge>
+                <Badge
+                  variant={
+                    hasClaimed
+                      ? "custom"
+                      : studentData.applicationStatus === "approved"
+                        ? "custom"
+                        : studentData.applicationStatus === "rejected"
+                          ? "destructive"
+                          : "outline"
+                  }
+                  className={
+                    hasClaimed
+                      ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 shadow-sm"
+                      : studentData.applicationStatus === "approved"
+                        ? "bg-green-100 text-green-800 hover:bg-green-200 shadow-sm"
+                        : studentData.applicationStatus === "rejected"
+                          ? "shadow-sm"
+                          : !currentApplication && applicationHistory.length > 0
+                            ? "bg-blue-100 text-blue-800 hover:bg-blue-200 shadow-sm"
+                            : "shadow-sm"
+                  }
+                >
+                  {hasClaimed
+                    ? "Claimed"
+                    : studentData.applicationStatus === "approved"
+                      ? "Approved"
+                      : studentData.applicationStatus === "rejected"
+                        ? "Rejected"
+                        : !currentApplication && applicationHistory.length > 0
+                          ? "Ready to Apply"
+                          : "Pending"}
+                </Badge>
               </CardHeader>
               <CardContent className="pt-4">
                 <div className="flex items-center gap-3 mb-3">
@@ -591,13 +579,13 @@ export default function StudentDashboard() {
                     </div>
                   </div>
                 </div>
-                <ApplicationStatus status={studentData.applicationStatus} />
+                <ApplicationStatus status={studentData.applicationStatus as any} />
               </CardContent>
             </Card>
           </div>
 
           <div className="card-hover">
-            <Card className="overflow-hidden border border-green-100 shadow-md">
+            <Card className="overflow-hidden border border-green-100 shadow-md h-full">
               <div className="h-1.5 bg-gradient-to-r from-blue-400 to-blue-600"></div>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-gradient-to-r from-blue-50 to-white">
                 <CardTitle className="text-sm font-medium">Academic Information</CardTitle>
@@ -625,20 +613,19 @@ export default function StudentDashboard() {
           </div>
 
           <div className="card-hover">
-            <Card className="overflow-hidden border border-green-100 shadow-md">
+            <Card className="overflow-hidden border border-green-100 shadow-md h-full">
               <div className="h-1.5 bg-gradient-to-r from-amber-400 to-amber-600"></div>
-              <CardHeader className="bg-gradient-to-r from-amber-50 to-white">
+              <CardHeader className="bg-gradient-to-r from-amber-50 to-white pb-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Required Documents</CardTitle>
-                    <CardDescription>Check your document submission status</CardDescription>
+                    <CardTitle className="text-sm font-medium">Required Documents</CardTitle>
                   </div>
-                  <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                    <FileText className="h-5 w-5 text-amber-600" />
+                  <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center">
+                    <FileText className="h-4 w-4 text-amber-600" />
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="pt-4 flex flex-col justify-between h-[calc(100%-3rem)]">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between p-2 rounded-md bg-white shadow-sm border border-gray-100">
                     <span className="text-sm">Enrollment Form</span>
@@ -659,7 +646,7 @@ export default function StudentDashboard() {
                     </Badge>
                   </div>
                 </div>
-                <div className="mt-4">
+                <div className="mt-4 pt-2">
                   <Link href="/student/documents">
                     <Button
                       variant="outline"

@@ -32,9 +32,19 @@ import {
 import { Plus, Trash2, Mail, CheckCircle, XCircle, Calendar, User, AlertCircle } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { getPreApprovedEmails, addPreApprovedEmail, removePreApprovedEmail, hasPermission, type PreApprovedEmail } from "@/lib/storage"
 import { PermissionGuard } from "@/components/permission-guard"
-import { useAuth } from "@/contexts/auth-context"
+
+// Import our Firestore functions
+import { getPreApprovedEmailsListDb, addPreApprovedEmailDb, deletePreApprovedEmailDb } from "@/lib/storage"
+
+// FIX: Updated to use 'addedAt' to perfectly match Firestore
+type PreApprovedEmail = {
+  id: string
+  email: string
+  isUsed: boolean
+  addedAt: string 
+  fullName?: string
+}
 
 export default function ApprovedEmailsPage() {
   const { toast } = useToast()
@@ -49,9 +59,13 @@ export default function ApprovedEmailsPage() {
     loadEmails()
   }, [])
 
-  const loadEmails = () => {
-    const preApprovedEmails = getPreApprovedEmails()
-    setEmails(preApprovedEmails)
+  const loadEmails = async () => {
+    try {
+      const preApprovedEmails = await getPreApprovedEmailsListDb()
+      setEmails(preApprovedEmails as PreApprovedEmail[])
+    } catch (error) {
+      console.error("Failed to load pre-approved emails:", error)
+    }
   }
 
   const handleAddEmails = async () => {
@@ -64,14 +78,12 @@ export default function ApprovedEmailsPage() {
       return
     }
 
-    // Parse emails from input (supports comma, semicolon, newline, or space separated)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     const rawEmails = emailsInput
       .split(/[\n,;\s]+/)
       .map((e) => e.trim().toLowerCase())
       .filter((e) => e.length > 0)
     
-    // Remove duplicates
     const uniqueEmails = [...new Set(rawEmails)]
 
     if (uniqueEmails.length === 0) {
@@ -87,22 +99,26 @@ export default function ApprovedEmailsPage() {
     const successEmails: string[] = []
     const failedEmails: string[] = []
 
+    // Fetch current emails to manually prevent duplicates
+    const currentEmailsList = await getPreApprovedEmailsListDb();
+    const currentEmailStrings = currentEmailsList.map(e => e.email.toLowerCase());
+
     for (const email of uniqueEmails) {
       if (!emailRegex.test(email)) {
         failedEmails.push(`${email} (invalid format)`)
         continue
       }
+      
+      if (currentEmailStrings.includes(email)) {
+        failedEmails.push(`${email} (already exists)`)
+        continue
+      }
 
       try {
-        await addPreApprovedEmail(
-          email,
-          undefined,
-          undefined,
-          "admin1",
-        )
+        await addPreApprovedEmailDb(email)
         successEmails.push(email)
       } catch (error: any) {
-        failedEmails.push(`${email} (${error.message || "already exists"})`)
+        failedEmails.push(`${email} (${error.message || "failed"})`)
       }
     }
 
@@ -113,7 +129,7 @@ export default function ApprovedEmailsPage() {
         title: "Emails Added",
         description: `Successfully added ${successEmails.length} email${successEmails.length > 1 ? "s" : ""}${failedEmails.length > 0 ? `. ${failedEmails.length} failed.` : ""}`,
       })
-      loadEmails()
+      loadEmails() // Refresh the list
     } else {
       toast({
         variant: "destructive",
@@ -133,20 +149,12 @@ export default function ApprovedEmailsPage() {
 
   const handleRemoveEmail = async (id: string, email: string) => {
     try {
-      const success = removePreApprovedEmail(id)
-      if (success) {
-        toast({
-          title: "Success",
-          description: `Removed ${email} from pre-approved list`,
-        })
-        loadEmails()
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to remove email",
-        })
-      }
+      await deletePreApprovedEmailDb(id)
+      toast({
+        title: "Success",
+        description: `Removed ${email} from pre-approved list`,
+      })
+      loadEmails() // Refresh the list
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -157,6 +165,7 @@ export default function ApprovedEmailsPage() {
   }
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return "N/A"
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
@@ -342,6 +351,7 @@ export default function ApprovedEmailsPage() {
                         <TableCell>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Calendar className="h-4 w-4" />
+                            {/* FIX: Now using addedAt! */}
                             {formatDate(email.addedAt)}
                           </div>
                         </TableCell>

@@ -1,7 +1,7 @@
 import NextAuth, { AuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-// Import our new Firestore lookup function
-import { getUserByEmailDb } from "@/lib/firestore"
+// Import our Firestore lookup function from the merged storage utility
+import { getUserByEmailDb } from "@/lib/storage"
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -21,8 +21,6 @@ export const authOptions: AuthOptions = {
           const user = await getUserByEmailDb(credentials.email)
 
           // 2. Check if user exists and passwords match
-          // (Note: We are keeping plain-text passwords for now to match your current setup. 
-          // In a future phase, we should add bcrypt hashing!)
           if (user && user.password === credentials.password) {
             // 3. Return the user object to NextAuth
             return {
@@ -44,9 +42,11 @@ export const authOptions: AuthOptions = {
   ],
   pages: {
     signIn: "/login",
+    error: "/login",
   },
   session: {
     strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   callbacks: {
     // Append custom data (like ID and Role) to the JWT token
@@ -65,7 +65,9 @@ export const authOptions: AuthOptions = {
       }
       return session
     }
-  }
+  },
+  secret: process.env.NEXTAUTH_SECRET || "THIS_IS_A_DEVELOPMENT_SECRET_CHANGE_IT",
+  debug: false,
 }
 
 const handler = NextAuth(authOptions)

@@ -3,7 +3,7 @@ import { FileText, Clock, LayoutDashboard, CheckCircle, XCircle, Calendar } from
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 // Import ONLY the new Firestore functions
-import { getDashboardStatsDb, getRecentApplicationsDb } from "@/lib/firestore"
+import { getDashboardStatsDb, getRecentApplicationsDb } from "@/lib/storage"
 
 // Turn this into an async Server Component (Notice we removed "use client")
 export default async function AdminDashboard() {

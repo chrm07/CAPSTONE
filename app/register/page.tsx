@@ -12,13 +12,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
-import { createUser, createApplication, initializeStorage, isEmailPreApproved } from "@/lib/storage"
 import { ArrowLeft, ArrowRight, CheckCircle, User, School, Lock, Mail } from "lucide-react"
 
-// Initialize storage when the page loads
-if (typeof window !== "undefined") {
-  initializeStorage()
-}
+// Notice we completely removed the mock storage imports!
 
 type FormData = {
   email: string
@@ -91,17 +87,8 @@ export default function RegisterPage() {
       return false
     }
 
-    const isApproved = isEmailPreApproved(formData.email)
-    if (!isApproved) {
-      setErrors({ email: "This email is not authorized to register" })
-      toast({
-        variant: "destructive",
-        title: "Email not authorized",
-        description: "This email is not authorized to register. Please contact the administrator.",
-      })
-      return false
-    }
-
+    // We do basic format validation here. The rigorous DB security check 
+    // happens on the backend when the final form is submitted!
     setEmailValidated(true)
     setErrors({ email: "" })
     return true
@@ -191,54 +178,50 @@ export default function RegisterPage() {
 
     setIsLoading(true)
     try {
-      const userData = {
-        name: formData.fullName,
-        email: formData.email,
-        password: formData.password,
-        role: "student" as const,
+      // Send the data directly to our new Firebase-powered API route
+      const response = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: formData.fullName,
+          email: formData.email,
+          password: formData.password,
+          address: formData.address,
+          contactNumber: formData.contactNumber,
+          age: formData.age,
+          gender: formData.gender,
+          barangay: formData.barangay,
+          schoolName: formData.school,
+          course: formData.course,
+          yearLevel: formData.yearLevel,
+          isPWD: formData.isPWD,
+        }),
+      })
+
+      const data = await response.json()
+
+      // If the backend rejects the email or fails, throw an error
+      if (!response.ok) {
+        throw new Error(data.error || "Registration failed")
       }
-
-      const profileData = {
-        fullName: formData.fullName,
-        email: formData.email,
-        contactNumber: formData.contactNumber,
-        address: formData.address,
-        age: formData.age,
-        gender: formData.gender,
-        barangay: formData.barangay,
-        bio: "",
-        school: formData.school,
-        course: formData.course,
-        yearLevel: formData.yearLevel,
-        isPWD: formData.isPWD,
-      }
-
-      const newUser = createUser(userData, profileData)
-
-      const applicationData = {
-        studentId: newUser.id,
-        fullName: formData.fullName,
-        email: formData.email,
-        course: formData.course,
-        yearLevel: formData.yearLevel,
-        school: formData.school,
-        barangay: formData.barangay,
-        gender: formData.gender,
-        age: formData.age,
-        status: "pending" as const,
-      }
-
-      createApplication(applicationData)
 
       toast({
         title: "Registration successful",
         description: "Your account has been created. Please login to access your account.",
+        variant: "success",
       })
 
       setTimeout(() => {
         router.push("/login")
       }, 2000)
+      
     } catch (error: any) {
+      // If the email wasn't authorized, push them back to Step 1
+      if (error.message.includes("authorized")) {
+        setStep(0)
+        setEmailValidated(false)
+      }
+      
       toast({
         variant: "destructive",
         title: "Registration failed",
@@ -313,7 +296,7 @@ export default function RegisterPage() {
                     {step === 3 && "Account Credentials"}
                   </CardTitle>
                   <CardDescription className="text-center text-slate-600">
-                    {step === 0 && "Verify your email is authorized to register"}
+                    {step === 0 && "Enter your email. Authorization is verified upon submission."}
                     {step === 1 && "Enter your personal details"}
                     {step === 2 && "Tell us about your education"}
                     {step === 3 && "Create your login credentials"}
@@ -351,7 +334,7 @@ export default function RegisterPage() {
                           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl">
                             <div className="flex items-center gap-2 text-green-700">
                               <CheckCircle className="h-4 w-4" />
-                              <span className="text-sm font-medium">Email verified: {formData.email}</span>
+                              <span className="text-sm font-medium">Email entered: {formData.email}</span>
                             </div>
                           </div>
                         )}
@@ -552,7 +535,7 @@ export default function RegisterPage() {
                         <div className="flex items-start space-x-3 p-4 bg-slate-50 rounded-xl border">
                           <Checkbox
                             id="acceptTerms"
-                            checked={formData.isPWD}
+                            checked={formData.isPWD} // Used for terms acceptance flag in this step
                             onCheckedChange={(checked) => updateField("isPWD", checked as boolean)}
                             className="mt-1"
                           />

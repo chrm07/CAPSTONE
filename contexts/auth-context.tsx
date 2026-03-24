@@ -3,8 +3,8 @@
 import type React from "react"
 import { createContext, useContext, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import type { User } from "@/lib/storage"
-import { getCurrentUser, login as loginStorage, logout as logoutStorage, initializeStorage } from "@/lib/storage"
+import { useSession, signIn, signOut, SessionProvider } from "next-auth/react"
+import { getUserByEmailDb, type User } from "@/lib/storage"
 
 interface AuthContextType {
   user: User | null
@@ -15,58 +15,43 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [mounted, setMounted] = useState(false)
+function AuthProviderInner({ children }: { children: React.ReactNode }) {
+  const { data: session, status } = useSession()
   const router = useRouter()
+  const [mounted, setMounted] = useState(false)
 
-  // Set mounted state
+  // Map session user to our local User type
+  const user = session?.user ? (session.user as any) : null
+  const isLoading = status === "loading" || !mounted
+
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  useEffect(() => {
-    if (!mounted) return
-
-    const loadUser = () => {
-      try {
-        // Initialize in-memory storage with sample data
-        initializeStorage()
-        const currentUser = getCurrentUser()
-        setUser(currentUser)
-      } catch (error) {
-        console.error("Error loading user:", error)
-        setUser(null)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadUser()
-  }, [mounted])
-
   const login = async (email: string, password: string): Promise<User | null> => {
     try {
-      logoutStorage()
-      setUser(null)
+      const result = await signIn("credentials", {
+        redirect: false,
+        email,
+        password,
+      })
 
-      const loggedInUser = loginStorage(email, password)
-      if (loggedInUser) {
-        setUser(loggedInUser)
-        return loggedInUser
+      if (result?.error) {
+        return null
       }
-      return null
+
+      // FETCH REAL USER DATA: This ensures we get the correct role from Firestore
+      const dbUser = await getUserByEmailDb(email)
+      return dbUser
     } catch (error) {
       console.error("Login error:", error)
       return null
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
     try {
-      setUser(null)
-      logoutStorage()
+      await signOut({ redirect: false })
       router.push("/login")
     } catch (error) {
       console.error("Logout error:", error)
@@ -76,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  if (!mounted || isLoading) {
+  if (!mounted || status === "loading") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
@@ -85,6 +70,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return <AuthContext.Provider value={{ user, login, logout, isLoading }}>{children}</AuthContext.Provider>
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <SessionProvider>
+      <AuthProviderInner>{children}</AuthProviderInner>
+    </SessionProvider>
+  )
 }
 
 export function useAuth(): AuthContextType {

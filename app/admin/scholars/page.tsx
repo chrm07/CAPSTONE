@@ -12,9 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Search, Eye, Users, Mail, GraduationCap, Calendar } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-import { getUsers, getApplications, hasPermission } from "@/lib/storage"
 import { PermissionGuard } from "@/components/permission-guard"
-import { useAuth } from "@/contexts/auth-context"
+
+// IMPORT OUR NEW FIRESTORE FUNCTIONS
+import { getScholarsDb, getApplicationsDb } from "@/lib/storage"
 
 // Define a type for scholar data
 type Scholar = {
@@ -46,52 +47,68 @@ export default function ScholarsPage() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [selectedScholar, setSelectedScholar] = useState<Scholar | null>(null)
 
-  // Load real data from local storage
+  // Load real data from Firestore
   useEffect(() => {
-    setLoading(true)
+    // We create an async function inside useEffect to handle the database call
+    const fetchScholarsData = async () => {
+      setLoading(true)
+      try {
+        // FETCH REAL DATA FROM FIRESTORE
+        const users = await getScholarsDb()
+        const applications = await getApplicationsDb()
 
-    // Get all users and applications from local storage
-    const users = getUsers().filter((user) => user.role === "student")
-    const applications = getApplications()
+        // Create a map of barangays for filtering
+        const uniqueBarangays = new Set<string>()
 
-    // Create a map of barangays for filtering
-    const uniqueBarangays = new Set<string>()
+        // Transform users and applications into scholar objects
+        const scholarsList: Scholar[] = users.map((user) => {
+          // Find the application for this user if it exists
+          const application = applications.find((app) => app.studentId === user.id || app.email === user.email)
 
-    // Transform users and applications into scholar objects
-    const scholarsList: Scholar[] = users.map((user) => {
-      // Find the application for this user if it exists
-      const application = applications.find((app) => app.studentId === user.id || app.email === user.email)
+          // Get profile data
+          const profileData = user.profileData || {}
 
-      // Get profile data
-      const profileData = user.profileData || {}
+          // Add barangay to the set of unique barangays
+          const barangay = application?.barangay || profileData?.barangay || "Unknown"
+          if (barangay !== "Unknown") {
+            uniqueBarangays.add(barangay)
+          }
 
-      // Add barangay to the set of unique barangays
-      const barangay = application?.barangay || profileData?.barangay || "Unknown"
-      uniqueBarangays.add(barangay)
+          return {
+            id: user.id,
+            name: user.name || profileData?.fullName || "Unknown",
+            course: application?.course || profileData?.course || "Unknown",
+            yearLevel: application?.yearLevel || profileData?.yearLevel || "Unknown",
+            barangay: barangay,
+            school: application?.school || profileData?.schoolName || "Unknown",
+            status: "active", // Default to active for now
+            semester: "1st Semester", // Default value
+            academicYear: "2023-2024", // Default value
+            email: user.email,
+            phone: profileData?.phoneNumber || application?.phoneNumber || profileData?.contactNumber,
+            address: profileData?.address || application?.address,
+            profileImage: profileData?.profileImage,
+            gpa: profileData?.gpa || "N/A",
+            birthDate: profileData?.birthDate,
+          }
+        })
 
-      return {
-        id: user.id,
-        name: user.name || profileData?.fullName || "Unknown",
-        course: application?.course || profileData?.course || "Unknown",
-        yearLevel: application?.yearLevel || profileData?.yearLevel || "Unknown",
-        barangay: barangay,
-        school: application?.school || profileData?.schoolName || "Unknown",
-        status: "active", // Default to active for now
-        semester: "1st Semester", // Default value
-        academicYear: "2023-2024", // Default value
-        email: user.email,
-        phone: profileData?.phoneNumber || application?.phoneNumber,
-        address: profileData?.address || application?.address,
-        profileImage: profileData?.profileImage,
-        gpa: profileData?.gpa || "N/A",
-        birthDate: profileData?.birthDate,
+        setScholars(scholarsList)
+        setBarangays(Array.from(uniqueBarangays))
+      } catch (error) {
+        console.error("Failed to fetch scholars:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load scholars data from the database.",
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false)
       }
-    })
+    }
 
-    setScholars(scholarsList)
-    setBarangays(Array.from(uniqueBarangays))
-    setLoading(false)
-  }, [])
+    fetchScholarsData()
+  }, [toast])
 
   // Filter scholars based on search term and filters
   const filteredScholars = scholars.filter((scholar) => {
@@ -198,7 +215,7 @@ export default function ScholarsPage() {
                     {loading ? (
                       <TableRow>
                         <TableCell colSpan={8} className="h-24 text-center">
-                          Loading scholars...
+                          Loading scholars from Firestore...
                         </TableCell>
                       </TableRow>
                     ) : filteredScholars.length === 0 ? (
