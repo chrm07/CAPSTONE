@@ -8,31 +8,114 @@ import { DocumentUpload } from "@/components/document-upload"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { FileText, CheckCircle, AlertCircle, Clock, Download, Eye, FolderOpen } from "lucide-react"
+import { FileText, CheckCircle, AlertCircle, Clock, Download, Eye, FolderOpen, Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useAuth } from "@/contexts/auth-context"
-import { getDocumentsByStudentId, type Document } from "@/lib/storage"
+
+// IMPORT ONLY FIRESTORE FUNCTIONS
+import { 
+  getDocumentsByStudentIdDb, 
+  getStudentApplicationDb,
+  createApplicationDb,
+  type Document,
+  type StudentProfile
+} from "@/lib/storage"
 
 export default function DocumentsPage() {
   const { toast } = useToast()
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState("upload")
   const [documentHistory, setDocumentHistory] = useState<Document[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [hasApplication, setHasApplication] = useState(false)
 
-  // Load documents from storage
+  // Load documents and check application status from storage
   useEffect(() => {
-    if (user) {
-      const docs = getDocumentsByStudentId(user.id)
-      setDocumentHistory(docs)
+    const checkStatus = async () => {
+      if (user) {
+        setIsLoadingHistory(true)
+        try {
+          const [docs, app] = await Promise.all([
+            getDocumentsByStudentIdDb(user.id),
+            getStudentApplicationDb(user.id)
+          ])
+          setDocumentHistory(docs)
+          setHasApplication(!!app)
+        } catch (error) {
+          console.error("Error fetching docs", error)
+        } finally {
+          setIsLoadingHistory(false)
+        }
+      }
     }
+    checkStatus()
   }, [user, activeTab])
 
   // Refresh documents when switching to history tab
-  const handleTabChange = (value: string) => {
+  const handleTabChange = async (value: string) => {
     setActiveTab(value)
     if (value === "history" && user) {
-      const docs = getDocumentsByStudentId(user.id)
-      setDocumentHistory(docs)
+      setIsLoadingHistory(true)
+      try {
+        const docs = await getDocumentsByStudentIdDb(user.id)
+        setDocumentHistory(docs)
+      } catch (error) {
+        console.error(error)
+      } finally {
+        setIsLoadingHistory(false)
+      }
+    }
+  }
+
+  // --- SUBMIT APPLICATION LOGIC ---
+  const handleSubmitApplication = async () => {
+    if (!user) return
+
+    // Require at least 1 document to apply
+    if (documentHistory.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Missing Requirements",
+        description: "You must upload your required documents before submitting an application.",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const profile = user.profileData as StudentProfile || {}
+      
+      // Create the official pending application
+      await createApplicationDb({
+        studentId: user.id,
+        fullName: profile.fullName || user.name,
+        email: user.email,
+        course: profile.course || "Not specified",
+        yearLevel: profile.yearLevel || "Not specified",
+        school: profile.schoolName || "Not specified",
+        barangay: profile.barangay || "Not specified",
+        isPWD: profile.isPWD || false,
+        status: "pending",
+      })
+
+      setHasApplication(true)
+      toast({
+        title: "Application Submitted!",
+        description: "Your scholarship application is now pending review by the admin.",
+        variant: "success",
+      })
+      
+      // Switch to history tab to view status
+      setActiveTab("history")
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Submission Failed",
+        description: "There was an error submitting your application. Please try again.",
+      })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -47,20 +130,39 @@ export default function DocumentsPage() {
     }).format(date)
   }
 
-  const handleViewDocument = (documentId: string) => {
-    toast({
-      title: "Viewing document",
-      description: `Opening document ${documentId} in a new tab.`,
-    })
-    // In a real application, this would open the document in a new tab
+  const handleViewDocument = (doc: Document) => {
+    if (doc.url) {
+      // In our setup, doc.url holds the Base64 string
+      if (doc.type === 'pdf') {
+        // Convert base64 to a Blob for safe viewing in a new tab
+        try {
+          fetch(doc.url)
+            .then(res => res.blob())
+            .then(blob => {
+              const blobUrl = URL.createObjectURL(blob)
+              window.open(blobUrl, '_blank')
+            })
+        } catch (e) {
+          window.open(doc.url, '_blank')
+        }
+      } else {
+        // Images can be opened directly usually
+        window.open(doc.url, '_blank')
+      }
+    } else {
+      toast({ title: "Error", description: "Document file not found.", variant: "destructive" })
+    }
   }
 
-  const handleDownloadDocument = (documentId: string) => {
-    toast({
-      title: "Downloading document",
-      description: `Document ${documentId} is being downloaded.`,
-    })
-    // In a real application, this would trigger a download
+  const handleDownloadDocument = (doc: Document) => {
+    if (doc.url) {
+      const a = document.createElement("a")
+      a.href = doc.url
+      a.download = `${doc.name}.${doc.type}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }
   }
 
   return (
@@ -72,7 +174,7 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="upload" className="space-y-4" onValueChange={handleTabChange}>
+      <Tabs value={activeTab} className="space-y-4" onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="upload">Upload Documents</TabsTrigger>
           <TabsTrigger value="history">Document History</TabsTrigger>
@@ -86,9 +188,18 @@ export default function DocumentsPage() {
               <CardDescription>Upload all required documents for your scholarship application</CardDescription>
             </CardHeader>
             <CardContent>
-              <DocumentUpload />
-              <div className="flex justify-end mt-6">
-                <Button className="bg-green-600 hover:bg-green-700 text-white">Submit All Documents</Button>
+              {/* Passes a callback so DocumentUpload can tell this page when a file is uploaded */}
+              <DocumentUpload onUploadComplete={() => handleTabChange("history")} />
+              
+              <div className="flex justify-end mt-6 border-t pt-6">
+                <Button 
+                  className="bg-green-600 hover:bg-green-700 text-white" 
+                  onClick={handleSubmitApplication}
+                  disabled={isSubmitting || hasApplication}
+                >
+                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {hasApplication ? "Application Already Submitted" : "Submit Scholarship Application"}
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -101,7 +212,12 @@ export default function DocumentsPage() {
               <CardDescription>View the status and history of your uploaded documents</CardDescription>
             </CardHeader>
             <CardContent>
-              {documentHistory.length === 0 ? (
+              {isLoadingHistory ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin mb-4" />
+                  <p>Loading documents...</p>
+                </div>
+              ) : documentHistory.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div className="rounded-full bg-muted p-4 mb-4">
                     <FolderOpen className="h-8 w-8 text-muted-foreground" />
@@ -134,19 +250,19 @@ export default function DocumentsPage() {
                               <FileText className="h-5 w-5 text-muted-foreground" />
                               <div>
                                 <p className="font-medium">{doc.name}</p>
-                                <p className="text-xs text-muted-foreground">{doc.fileSize}</p>
+                                <p className="text-xs text-muted-foreground">{doc.fileSize || "Unknown size"}</p>
                               </div>
                             </div>
                           </TableCell>
                           <TableCell>
-                            <p>{doc.semester}</p>
-                            <p className="text-xs text-muted-foreground">{doc.academicYear}</p>
+                            <p>{doc.semester || "1st Semester"}</p>
+                            <p className="text-xs text-muted-foreground">{doc.academicYear || "2023-2024"}</p>
                           </TableCell>
                           <TableCell>{formatDate(doc.uploadedAt)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               {doc.status === "approved" && (
-                                <Badge variant="success" className="flex items-center gap-1 bg-green-100 text-green-800">
+                                <Badge variant="success" className="flex items-center gap-1 bg-green-100 text-green-800 hover:bg-green-100">
                                   <CheckCircle className="h-3 w-3" />
                                   Approved
                                 </Badge>
@@ -170,11 +286,11 @@ export default function DocumentsPage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <Button variant="ghost" size="icon" onClick={() => handleViewDocument(doc.id)}>
+                              <Button variant="ghost" size="icon" onClick={() => handleViewDocument(doc)}>
                                 <Eye className="h-4 w-4" />
                                 <span className="sr-only">View</span>
                               </Button>
-                              <Button variant="ghost" size="icon" onClick={() => handleDownloadDocument(doc.id)}>
+                              <Button variant="ghost" size="icon" onClick={() => handleDownloadDocument(doc)}>
                                 <Download className="h-4 w-4" />
                                 <span className="sr-only">Download</span>
                               </Button>

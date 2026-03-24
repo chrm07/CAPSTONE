@@ -50,7 +50,12 @@ const fileToBase64 = (file: File): Promise<string> => {
   })
 }
 
-export function DocumentUpload() {
+// Add the onUploadComplete prop interface
+interface DocumentUploadProps {
+  onUploadComplete?: () => void
+}
+
+export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
   const { toast } = useToast()
   const { user } = useAuth()
   const [documents, setDocuments] = useState<Record<string, DocumentStatus>>({
@@ -75,7 +80,7 @@ export function DocumentUpload() {
               updatedDocuments[docType] = {
                 ...initialDocumentStatus,
                 isUploaded: true,
-                fileName: doc.name, // using doc name since file name is lost in db
+                fileName: doc.name, 
                 fileSize: doc.fileSize,
               }
             }
@@ -88,6 +93,7 @@ export function DocumentUpload() {
       }
     }
     loadDocs()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   const getDocumentType = (name: string): string | null => {
@@ -197,6 +203,12 @@ export function DocumentUpload() {
           </div>
         ),
       })
+
+      // Notify parent component that an upload finished
+      if (onUploadComplete) {
+        onUploadComplete()
+      }
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Upload failed'
       setDocuments((prev) => ({
@@ -205,7 +217,7 @@ export function DocumentUpload() {
       }))
       toast({ variant: "destructive", title: "Upload failed", description: errorMessage })
     }
-  }, [user, toast])
+  }, [user, toast, onUploadComplete])
 
   const handleFileChange = (documentType: string, acceptedTypes: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0]) return

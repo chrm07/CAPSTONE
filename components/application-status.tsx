@@ -1,70 +1,85 @@
+"use client"
+
 import { CheckCircle, Clock, XCircle } from "lucide-react"
 
 interface ApplicationStatusProps {
-  status: string
+  status: "unsubmitted" | "pending" | "approved" | "rejected"
 }
 
 export function ApplicationStatus({ status }: ApplicationStatusProps) {
   const steps = [
-    { id: 1, name: "Submitted", status: "complete" },
-    {
-      id: 2,
-      name: "Under Review",
-      status:
-        status === "pending" ? "current" : status === "approved" || status === "rejected" ? "complete" : "upcoming",
-    },
-    { id: 3, name: "Decision", status: status === "approved" || status === "rejected" ? "complete" : "upcoming" },
+    { id: "submitted", label: "Submitted" },
+    { id: "review", label: "Under Review" },
+    { id: "decision", label: "Decision" },
   ]
 
+  const getStepState = (stepId: string) => {
+    // 🔥 THE FIX: If no documents are uploaded, all steps stay inactive (gray)
+    if (status === "unsubmitted") return "inactive"
+
+    if (stepId === "submitted") return "completed"
+
+    if (stepId === "review") {
+      if (status === "approved" || status === "rejected") return "completed"
+      return "current" // This is for 'pending'
+    }
+
+    if (stepId === "decision") {
+      if (status === "approved") return "completed"
+      if (status === "rejected") return "rejected"
+      return "inactive"
+    }
+
+    return "inactive"
+  }
+
   return (
-    <div className="mt-4">
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center" aria-hidden="true">
-          <div className="h-0.5 w-full bg-gray-200"></div>
-        </div>
-        <ul className="relative flex w-full justify-between">
-          {steps.map((step) => (
-            <li key={step.id} className="flex items-center justify-center">
-              {step.status === "complete" ? (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-r from-green-500 to-green-600 shadow-md">
-                  <CheckCircle className="h-5 w-5 text-white" />
-                </div>
-              ) : step.status === "current" ? (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-r from-amber-400 to-amber-500 shadow-md animate-pulse-slow">
-                  <Clock className="h-5 w-5 text-white" />
-                </div>
-              ) : step.status === "upcoming" ? (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200">
-                  <span className="h-2.5 w-2.5 rounded-full bg-gray-400"></span>
-                </div>
-              ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-r from-red-500 to-red-600 shadow-md">
-                  <XCircle className="h-5 w-5 text-white" />
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      </div>
-      <ul className="mt-2 grid grid-cols-3 text-sm">
-        {steps.map((step) => (
-          <li key={step.id} className="text-center">
-            <span
-              className={`${
-                step.status === "complete"
-                  ? "text-green-600 font-medium"
-                  : step.status === "current"
-                    ? "text-amber-600 font-medium"
-                    : step.status === "upcoming"
-                      ? "text-gray-500"
-                      : "text-red-600 font-medium"
+    <div className="relative flex items-center justify-between w-full px-2 py-4">
+      {/* Background line */}
+      <div className="absolute top-1/2 left-6 right-6 h-0.5 bg-gray-200 -translate-y-1/2 z-0"></div>
+
+      {steps.map((step) => {
+        const state = getStepState(step.id)
+
+        return (
+          <div key={step.id} className="relative flex flex-col items-center z-10 bg-white px-2">
+            <div
+              className={`flex h-8 w-8 items-center justify-center rounded-full border-2 transition-colors ${
+                state === "completed"
+                  ? "border-green-500 bg-white"
+                  : state === "rejected"
+                  ? "border-red-500 bg-white"
+                  : state === "current"
+                  ? "border-amber-500 bg-white"
+                  : "border-gray-200 bg-white"
               }`}
             >
-              {step.name}
+              {state === "completed" ? (
+                <CheckCircle className="h-5 w-5 text-green-500" />
+              ) : state === "current" ? (
+                <Clock className="h-5 w-5 text-amber-500" />
+              ) : state === "rejected" ? (
+                <XCircle className="h-5 w-5 text-red-500" />
+              ) : (
+                <div className="h-2.5 w-2.5 rounded-full bg-gray-200" /> // Inactive gray dot
+              )}
+            </div>
+            <span
+              className={`mt-2 text-[11px] font-semibold ${
+                state === "completed"
+                  ? "text-green-600"
+                  : state === "rejected"
+                  ? "text-red-600"
+                  : state === "current"
+                  ? "text-amber-600"
+                  : "text-gray-400"
+              }`}
+            >
+              {step.label}
             </span>
-          </li>
-        ))}
-      </ul>
+          </div>
+        )
+      })}
     </div>
   )
 }
