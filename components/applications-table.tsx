@@ -2,36 +2,65 @@
 
 import { useState, useEffect } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { MoreHorizontal, Check, X, FileText, Download, Eye } from "lucide-react"
+import { MoreHorizontal, Check, X, FileText, Loader2, ExternalLink, ChevronRight } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
-// IMPORT OUR NEW FIRESTORE FUNCTIONS
-import { getApplicationsDb, updateApplicationStatusDb } from "@/lib/storage"
-import { type Application } from "@/lib/storage"
+// IMPORT OUR REAL FIRESTORE FUNCTIONS
+import { 
+  getApplicationsDb, 
+  updateApplicationStatusDb, 
+  getDocumentsByStudentIdDb,
+  type Application,
+  type Document 
+} from "@/lib/storage"
 
 interface ApplicationsTableProps {
   limit?: number
+}
+
+// Converts Base64 to a trusted browser Blob URL for the "Open in new tab" button
+const openBase64InNewTab = async (base64Data: string) => {
+  try {
+    const response = await fetch(base64Data)
+    const blob = await response.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    window.open(blobUrl, '_blank')
+  } catch (error) {
+    console.error("Failed to open document", error)
+    window.open(base64Data, '_blank')
+  }
 }
 
 export function ApplicationsTable({ limit }: ApplicationsTableProps) {
   const { toast } = useToast()
   const [applications, setApplications] = useState<Application[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // Modal States
   const [documentsModalOpen, setDocumentsModalOpen] = useState(false)
+  const [loadingDocs, setLoadingDocs] = useState(false)
+  const [studentDocs, setStudentDocs] = useState<Document[]>([])
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null)
+  
+  // NEW: Keep track of which document is currently active in the viewer
+  const [activeDocument, setActiveDocument] = useState<Document | null>(null)
+  
+  // Rejection States
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [applicationToReject, setApplicationToReject] = useState<Application | null>(null)
   const [rejectionReason, setRejectionReason] = useState("")
   const [isRejecting, setIsRejecting] = useState(false)
   const [isApproving, setIsApproving] = useState<string | null>(null)
 
-  // Load real data from Firestore
+  // 1. Fetch Applications on Load
   useEffect(() => {
     const fetchApplications = async () => {
       setLoading(true)
@@ -40,189 +69,126 @@ export function ApplicationsTable({ limit }: ApplicationsTableProps) {
         const limitedApplications = limit ? allApplications.slice(0, limit) : allApplications
         setApplications(limitedApplications)
       } catch (error) {
-        console.error("Error fetching applications:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load applications from the database.",
-          variant: "destructive",
-        })
+        console.error("Error:", error)
+        toast({ title: "Error", description: "Failed to load applications.", variant: "destructive" })
       } finally {
         setLoading(false)
       }
     }
-
     fetchApplications()
   }, [limit, toast])
 
-  const handleViewDocuments = (applicationId: string) => {
-    const application = applications.find((app) => app.id === applicationId)
-    if (application) {
-      setSelectedApplication(application)
-      setDocumentsModalOpen(true)
+  // 2. Fetch Real Base64 Documents for the Modal
+  const handleViewDocuments = async (application: Application) => {
+    setSelectedApplication(application)
+    setDocumentsModalOpen(true)
+    setLoadingDocs(true)
+    setStudentDocs([])
+    setActiveDocument(null)
+
+    try {
+      const docs = await getDocumentsByStudentIdDb(application.studentId)
+      setStudentDocs(docs)
+      // Automatically select the first document to display when the modal opens
+      if (docs.length > 0) {
+        setActiveDocument(docs[0])
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Could not retrieve student documents.", variant: "destructive" })
+    } finally {
+      setLoadingDocs(false)
     }
   }
 
   const handleApproveApplication = async (applicationId: string) => {
     setIsApproving(applicationId)
     try {
-      // UPDATE STATUS IN FIRESTORE
       await updateApplicationStatusDb(applicationId, "approved")
-
-      // Update local state to reflect change immediately
       setApplications(applications.map((app) => (app.id === applicationId ? { ...app, status: "approved" } : app)))
-
-      toast({
-        title: "Application approved",
-        description: "The application has been successfully approved in the database.",
-        variant: "success",
-      })
+      toast({ title: "Approved!", description: "Application status updated.", variant: "success" })
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to approve application. Please check your connection.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Approval failed.", variant: "destructive" })
     } finally {
       setIsApproving(null)
     }
   }
 
-  const openRejectDialog = (application: Application) => {
-    setApplicationToReject(application)
-    setRejectionReason("")
-    setRejectDialogOpen(true)
-  }
-
   const handleRejectApplication = async () => {
-    if (!applicationToReject) return
-
-    if (!rejectionReason.trim()) {
-      toast({
-        title: "Reason required",
-        description: "Please provide a reason for rejecting this application.",
-        variant: "destructive",
-      })
-      return
-    }
-
+    if (!applicationToReject || !rejectionReason.trim()) return
     setIsRejecting(true)
     try {
-      // UPDATE STATUS IN FIRESTORE
       await updateApplicationStatusDb(applicationToReject.id, "rejected", rejectionReason.trim())
-
-      // Update local state
       setApplications(applications.map((app) => 
         app.id === applicationToReject.id 
           ? { ...app, status: "rejected", feedback: rejectionReason.trim() } 
           : app
       ))
-
-      toast({
-        title: "Application rejected",
-        description: `Application for ${applicationToReject.fullName} has been rejected.`,
-      })
-
       setRejectDialogOpen(false)
-      setApplicationToReject(null)
-      setRejectionReason("")
+      toast({ title: "Rejected", description: "Student has been notified." })
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to reject application.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Rejection failed.", variant: "destructive" })
     } finally {
       setIsRejecting(false)
     }
   }
 
-  // Helper to format the Date consistently
   const formatDate = (dateStr: string) => {
-    try {
-      return new Date(dateStr).toLocaleDateString()
-    } catch (e) {
-      return "N/A"
-    }
+    try { return new Date(dateStr).toLocaleDateString() } catch (e) { return "N/A" }
   }
 
   return (
     <>
-      <div className="rounded-md border">
+      <div className="rounded-md border bg-white">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[120px]">Application ID</TableHead>
-              <TableHead className="w-[200px]">Name</TableHead>
-              <TableHead className="w-[250px]">Course</TableHead>
-              <TableHead className="w-[200px]">School</TableHead>
-              <TableHead className="w-[120px]">Year Level</TableHead>
-              <TableHead className="w-[150px]">Location</TableHead>
-              <TableHead className="w-[140px]">Date Applied</TableHead>
-              <TableHead className="w-[100px]">Status</TableHead>
-              <TableHead className="w-[80px] text-right">Actions</TableHead>
+              <TableHead>Application ID</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead>Course</TableHead>
+              <TableHead>School</TableHead>
+              <TableHead>Location</TableHead>
+              <TableHead>Date Applied</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center">
-                  Loading applications from Firestore...
-                </TableCell>
-              </TableRow>
+              <TableRow><TableCell colSpan={8} className="h-24 text-center">Loading Firestore data...</TableCell></TableRow>
             ) : applications.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center">
-                  No applications found in the database.
-                </TableCell>
-              </TableRow>
+              <TableRow><TableCell colSpan={8} className="h-24 text-center">No applications found.</TableCell></TableRow>
             ) : (
-              applications.map((application) => (
-                <TableRow key={application.id}>
-                  <TableCell className="font-medium w-[120px] font-mono text-xs">{application.id}</TableCell>
-                  <TableCell className="w-[200px] font-medium">{application.fullName}</TableCell>
-                  <TableCell className="w-[250px] text-sm">{application.course}</TableCell>
-                  <TableCell className="w-[200px] text-sm">{application.school}</TableCell>
-                  <TableCell className="w-[120px] text-sm">{application.yearLevel}</TableCell>
-                  <TableCell className="w-[150px] text-sm text-muted-foreground">{application.barangay}</TableCell>
-                  <TableCell className="w-[140px] text-sm">
-                    {formatDate(application.createdAt)}
-                  </TableCell>
-                  <TableCell className="w-[100px]">
-                    <Badge
-                      variant={
-                        application.status === "approved"
-                          ? "success"
-                          : application.status === "rejected"
-                            ? "destructive"
-                            : "outline"
-                      }
-                      className="text-xs"
-                    >
-                      {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
+              applications.map((app) => (
+                <TableRow key={app.id}>
+                  <TableCell className="font-mono text-xs">{app.id}</TableCell>
+                  <TableCell className="font-medium">{app.fullName}</TableCell>
+                  <TableCell className="text-sm">{app.course}</TableCell>
+                  <TableCell className="text-sm">{app.school}</TableCell>
+                  <TableCell className="text-sm">{app.barangay}</TableCell>
+                  <TableCell className="text-sm">{formatDate(app.createdAt)}</TableCell>
+                  <TableCell>
+                    <Badge variant={app.status === "approved" ? "success" : app.status === "rejected" ? "destructive" : "outline"}>
+                      {app.status.toUpperCase()}
                     </Badge>
                   </TableCell>
-                  <TableCell className="w-[80px] text-right">
+                  <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={isApproving === application.id}>
+                        <Button variant="ghost" size="icon" disabled={isApproving === app.id}>
                           <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Open menu</span>
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleViewDocuments(application.id)}>
-                          <FileText className="mr-2 h-4 w-4" />
-                          View Documents
+                        <DropdownMenuItem onClick={() => handleViewDocuments(app)}>
+                          <FileText className="mr-2 h-4 w-4" /> View Documents
                         </DropdownMenuItem>
-                        {application.status === "pending" && (
+                        {app.status === "pending" && (
                           <>
-                            <DropdownMenuItem onClick={() => handleApproveApplication(application.id)}>
-                              <Check className="mr-2 h-4 w-4" />
-                              Approve
+                            <DropdownMenuItem className="text-green-600" onClick={() => handleApproveApplication(app.id)}>
+                              <Check className="mr-2 h-4 w-4" /> Approve
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openRejectDialog(application)}>
-                              <X className="mr-2 h-4 w-4" />
-                              Reject
+                            <DropdownMenuItem className="text-red-600" onClick={() => { setApplicationToReject(app); setRejectDialogOpen(true); }}>
+                              <X className="mr-2 h-4 w-4" /> Reject
                             </DropdownMenuItem>
                           </>
                         )}
@@ -236,11 +202,145 @@ export function ApplicationsTable({ limit }: ApplicationsTableProps) {
         </Table>
       </div>
 
-      {/* Rejection and Documents Modals remain mostly the same UI-wise ... */}
-      {/* (Skipping identical UI code for brevity, ensure the rejection handler matches the function above) */}
-      
-      {/* [Keep your existing Dialog components for documentsModalOpen and rejectDialogOpen here, 
-          ensuring handleRejectApplication is the one we defined with 'async' above] */}
+      {/* --- SPLIT-PANE DOCUMENTS MODAL --- */}
+      <Dialog open={documentsModalOpen} onOpenChange={setDocumentsModalOpen}>
+        <DialogContent className="max-w-6xl h-[90vh] flex flex-col p-0 overflow-hidden bg-slate-50 border-none shadow-2xl">
+          {/* Header */}
+          <DialogHeader className="px-6 py-4 border-b bg-white shrink-0">
+            <DialogTitle className="text-xl">Documents for {selectedApplication?.fullName}</DialogTitle>
+            <DialogDescription>Select a document from the sidebar to view it.</DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex flex-1 overflow-hidden">
+            {/* Sidebar: List of Documents */}
+            <div className="w-1/3 max-w-[300px] border-r bg-white flex flex-col">
+              <ScrollArea className="flex-1">
+                <div className="p-4 space-y-3">
+                  {loadingDocs ? (
+                    <div className="flex items-center justify-center py-10">
+                      <Loader2 className="h-6 w-6 animate-spin text-green-600" />
+                    </div>
+                  ) : studentDocs.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center py-10">No documents found.</p>
+                  ) : (
+                    studentDocs.map((doc) => (
+                      <button
+                        key={doc.id}
+                        onClick={() => setActiveDocument(doc)}
+                        className={`w-full text-left p-3 rounded-xl border transition-all flex flex-col gap-2 ${
+                          activeDocument?.id === doc.id 
+                            ? 'bg-green-50 border-green-500 ring-1 ring-green-500 shadow-sm' 
+                            : 'bg-white border-slate-200 hover:border-green-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between w-full">
+                          <span className="font-semibold text-sm text-slate-800 pr-2">{doc.name}</span>
+                          <Badge variant={activeDocument?.id === doc.id ? "default" : "secondary"} className="text-[10px] uppercase">
+                            {doc.type}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between w-full text-xs text-slate-500">
+                          <span>{doc.fileSize}</span>
+                          {activeDocument?.id === doc.id && <ChevronRight className="h-4 w-4 text-green-600" />}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Main Viewer: Fixed Full Height */}
+            <div className="flex-1 bg-slate-100 flex flex-col relative">
+              {activeDocument ? (
+                <div className="flex-1 flex flex-col w-full h-full">
+                  
+                  {/* Top Bar for active document */}
+                  <div className="h-14 border-b bg-white flex items-center justify-between px-6 shrink-0 shadow-sm z-10">
+                    <span className="font-semibold text-slate-700 flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-green-600"/>
+                      {activeDocument.name}
+                    </span>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="border-green-200 hover:bg-green-50 hover:text-green-700"
+                      onClick={() => openBase64InNewTab(activeDocument.url)}
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" /> 
+                      Open in New Tab
+                    </Button>
+                  </div>
+
+                  {/* The Document Itself (Scroll is contained inside here!) */}
+                  <div className="flex-1 p-4 overflow-hidden flex items-center justify-center">
+                    {activeDocument.type === 'pdf' ? (
+                      <div className="w-full h-full bg-white rounded-lg shadow-md border overflow-hidden">
+                        <object 
+                          data={activeDocument.url} 
+                          type="application/pdf" 
+                          className="w-full h-full"
+                        >
+                          <div className="flex flex-col items-center justify-center h-full text-center space-y-4 p-8">
+                            <FileText className="h-16 w-16 text-slate-300" />
+                            <p className="text-slate-500">PDF Viewer not supported in this browser.</p>
+                            <Button onClick={() => openBase64InNewTab(activeDocument.url)}>
+                              Download / Open PDF
+                            </Button>
+                          </div>
+                        </object>
+                      </div>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-white rounded-lg shadow-md border p-2 overflow-hidden">
+                        <img 
+                          src={activeDocument.url} 
+                          alt={activeDocument.name} 
+                          className="max-w-full max-h-full object-contain rounded"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+                  <FileText className="h-16 w-16 mb-4 opacity-20" />
+                  <p>Select a document from the left to view it here.</p>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter className="p-4 border-t bg-white shrink-0">
+            <Button variant="outline" onClick={() => setDocumentsModalOpen(false)}>Close Viewer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- REJECT DIALOG --- */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Application</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting {applicationToReject?.fullName}&apos;s application.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label>Reason for Rejection</Label>
+            <Textarea 
+              placeholder="e.g. Incomplete documents, invalid ID..." 
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleRejectApplication} disabled={isRejecting || !rejectionReason.trim()}>
+              {isRejecting ? "Rejecting..." : "Confirm Rejection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
