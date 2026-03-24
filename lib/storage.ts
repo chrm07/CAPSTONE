@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, getDocs, query, where, updateDoc, addDoc, deleteDoc } from "firebase/firestore";
+import { collection, doc, setDoc, getDoc, getDocs, query, where, updateDoc, addDoc, deleteDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
 // ==================== TYPE DEFINITIONS ====================
@@ -70,6 +70,9 @@ export type Application = {
   submittedAt: string
   feedback?: string
   isPWD?: boolean 
+  isClaimed?: boolean
+  claimedAt?: string
+  processedByAdmin?: string
 }
 
 export type Document = {
@@ -443,3 +446,81 @@ export function getAdminRoleLabel(adminRole: AdminRole): string {
 }
 export function getVerificationSchedules(): any[] { return [] }
 export function getDocumentsByStudentId(studentId: string): any[] { return [] }
+// ============================================================================
+// PHASE 15 & 16: QR VERIFICATION & CLAIMING FIRESTORE FUNCTIONS
+// ============================================================================
+
+// 1. Get a single user by their ID
+export async function getUserDb(userId: string) {
+  try {
+    const docRef = doc(db, "users", userId)
+    const docSnap = await getDoc(docRef)
+    if (docSnap.exists()) {
+      return { id: docSnap.id, ...docSnap.data() }
+    }
+    return null
+  } catch (error) {
+    console.error("Error fetching user:", error)
+    return null
+  }
+}
+
+// 2. Get all users (used for fallback searching by email/studentId)
+export async function getAllUsersDb() {
+  try {
+    const q = query(collection(db, "users"))
+    const querySnapshot = await getDocs(q)
+    return querySnapshot.docs.map(docSnap => ({
+      id: docSnap.id,
+      ...docSnap.data()
+    }))
+  } catch (error) {
+    console.error("Error fetching all users:", error)
+    return []
+  }
+}
+
+// 3. Mark Student as Eligible (Stub function for compatibility)
+export function markStudentAsEligible(studentId: string) {
+  // In our new Firestore flow, eligibility is determined by the application status being "approved".
+  // We keep this function to satisfy the UI's success toast message.
+  return { success: true }
+}
+
+// 4. Mark Student as Claimed (Real Firestore Logic)
+export async function markStudentAsClaimed(studentId: string, adminId: string) {
+  try {
+    console.log("Attempting to mark claimed for student:", studentId);
+    
+    // Query ONLY by studentId to avoid Firestore Composite Index errors
+    const q = query(
+      collection(db, "applications"), 
+      where("studentId", "==", studentId)
+    )
+    
+    const snapshot = await getDocs(q)
+    
+    // Filter for the approved application using JavaScript
+    const approvedApps = snapshot.docs.filter(doc => doc.data().status === "approved")
+    
+    if (approvedApps.length === 0) {
+      return { success: false, message: "No approved application found for this student." }
+    }
+
+    // Update the application to show it has been claimed
+    const appDoc = approvedApps[0]
+    console.log("Found application, updating document ID:", appDoc.id);
+
+    await updateDoc(doc(db, "applications", appDoc.id), {
+      isClaimed: true,
+      claimedAt: new Date().toISOString(),
+      processedByAdmin: adminId || "unknown_admin"
+    })
+
+    return { success: true, message: "Student has been successfully marked as claimed." }
+  } catch (error: any) {
+    console.error("EXACT FIREBASE ERROR:", error);
+    // 🔥 THIS WILL SHOW THE REAL ERROR ON YOUR SCREEN
+    return { success: false, message: `Firebase Error: ${error.message}` }
+  }
+}

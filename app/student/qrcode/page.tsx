@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { StudentLayout } from "@/components/student-layout"
-import { QRCode } from "@/components/qr-code"
 import { useToast } from "@/components/ui/use-toast"
 import { Download, Share2, Smartphone, Shield, Info, AlertCircle, History } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import Link from "next/link"
+import Image from "next/image"
 
 export default function QRCodePage() {
   const { toast } = useToast()
@@ -29,7 +29,7 @@ export default function QRCodePage() {
       // Extract student data from user profile with better fallbacks
       const profileData = user.profileData || {}
       setStudentData({
-        id: profileData.studentId || user.id || "2022-12345",
+        id: user.id || profileData.studentId || "2022-12345",
         name: profileData.fullName || user.name || "Juan Miguel Dela Cruz",
         course: profileData.course || "Bachelor of Science in Computer Science",
         yearLevel: profileData.yearLevel || "2nd Year",
@@ -38,21 +38,25 @@ export default function QRCodePage() {
     }
   }, [user])
 
+  // 🔥 NEW: Generate the exact payload for both viewing and downloading
+  const getQRCodeUrl = (size: number = 400) => {
+    if (!user) return ""
+    
+    const qrData = {
+      type: "BTS_SCHOLARSHIP",
+      id: user.id, // Official Firestore User ID
+      v: "1.0",
+    }
+
+    const qrValue = JSON.stringify(qrData)
+    const encodedValue = encodeURIComponent(qrValue)
+    return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodedValue}&ecc=H&margin=10&qzone=2`
+  }
+
   const handleDownloadQRCode = async () => {
     try {
-      const profileData = user?.studentProfile || user?.profileData || {}
-      const studentId = profileData.studentId || user?.id
-
-      const qrData = {
-        type: "BTS_SCHOLARSHIP",
-        id: studentId,
-        v: "1.0",
-      }
-
-      const qrValue = JSON.stringify(qrData)
-      const encodedValue = encodeURIComponent(qrValue)
-      // Increased size to 1200x1200 with larger margin for better print quality
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=1200x1200&data=${encodedValue}&ecc=H&margin=10&qzone=2`
+      // Use the 1200x1200 size for high-quality downloads
+      const qrUrl = getQRCodeUrl(1200)
 
       // Create a temporary link to download the QR code
       const link = document.createElement("a")
@@ -130,9 +134,24 @@ export default function QRCodePage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center justify-center">
-              <div>
-                <QRCode size={400} />
+              
+              {/* 🔥 THE FIX: Display the real, dynamic QR code */}
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                {user ? (
+                  <img 
+                    src={getQRCodeUrl(400)} 
+                    alt={`QR Code for ${studentData.name}`}
+                    width={300}
+                    height={300}
+                    className="mx-auto rounded-md"
+                  />
+                ) : (
+                  <div className="w-[300px] h-[300px] flex items-center justify-center bg-gray-50 rounded-md">
+                    <p className="text-gray-400">Loading QR Code...</p>
+                  </div>
+                )}
               </div>
+
               <div className="mt-6 text-center space-y-1">
                 <p className="font-semibold text-lg">{studentData.name}</p>
                 <p className="text-sm text-muted-foreground">Student ID: {studentData.id}</p>

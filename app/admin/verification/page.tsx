@@ -7,30 +7,32 @@ import { Input } from "@/components/ui/input"
 import { AdminLayout } from "@/components/admin-layout"
 import { QrScanner } from "@/components/qr-scanner"
 import { useToast } from "@/components/ui/use-toast"
-import { getUsers, getApplications, markStudentAsEligible, markStudentAsClaimed, hasStudentClaimed, isStudentEligible } from "@/lib/storage"
 import { useAuth } from "@/contexts/auth-context"
-import { Check, User, QrCode, Keyboard, Search } from "lucide-react"
+import { Check, User, QrCode, Keyboard, Search, Loader2, XCircle } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+// FIRESTORE IMPORTS
+import { 
+  getUserDb, 
+  getAllUsersDb, 
+  getStudentApplicationDb, 
+  markStudentAsEligible, 
+  markStudentAsClaimed, 
+  hasStudentClaimed 
+} from "@/lib/storage"
+
+// Decrypt logic kept for legacy support
 async function decryptData(encryptedData: string, key: string): Promise<string> {
   try {
     const encoder = new TextEncoder()
     const keyBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(key))
     const cryptoKey = await crypto.subtle.importKey("raw", keyBuffer, { name: "AES-GCM" }, false, ["decrypt"])
-
-    // Decode from base64
     const combined = new Uint8Array(
-      atob(encryptedData)
-        .split("")
-        .map((char) => char.charCodeAt(0)),
+      atob(encryptedData).split("").map((char) => char.charCodeAt(0)),
     )
-
-    // Extract IV and encrypted data
     const iv = combined.slice(0, 12)
     const encrypted = combined.slice(12)
-
     const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, cryptoKey, encrypted)
-
     return new TextDecoder().decode(decrypted)
   } catch (error) {
     throw new Error("Failed to decrypt QR code data")
@@ -42,10 +44,11 @@ export default function QRVerificationPage() {
   const { user } = useAuth()
   const [studentId, setStudentId] = useState("")
   const [isScanning, setIsScanning] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const [isClaimed, setIsClaimed] = useState(false)
   const [verificationResult, setVerificationResult] = useState<{
     verified: boolean
-    userId?: string // The actual user ID for marking as claimed
+    userId?: string
     failureReason?: string
     failureDetails?: string
     student?: {
@@ -58,7 +61,8 @@ export default function QRVerificationPage() {
     }
   } | null>(null)
 
-  const handleMarkAsClaimed = () => {
+  // 🔥 THE FIX: THIS IS NOW ASYNC/AWAIT AND CONNECTS TO FIRESTORE
+  const handleMarkAsClaimed = async () => {
     if (!verificationResult?.userId || !user) {
       toast({
         variant: "destructive",
@@ -68,289 +72,158 @@ export default function QRVerificationPage() {
       return
     }
 
-    const result = markStudentAsClaimed(verificationResult.userId, user.id)
-    
-    if (result.success) {
-      setIsClaimed(true)
-      toast({
-        title: "Financial Aid Claimed",
-        description: result.message,
-      })
+    setIsProcessing(true) // Show loading spinner
+    try {
+      const result = await markStudentAsClaimed(verificationResult.userId, user.id)
       
-      // Clear the verification result after a delay to allow for another scan
-      setTimeout(() => {
-        setVerificationResult(null)
-        setIsClaimed(false)
-        setStudentId("")
-      }, 3000)
-    } else {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: result.message,
-      })
+      if (result.success) {
+        setIsClaimed(true)
+        toast({ title: "Financial Aid Claimed", description: result.message })
+        setTimeout(() => {
+          setVerificationResult(null)
+          setIsClaimed(false)
+          setStudentId("")
+        }, 3000)
+      } else {
+        toast({ variant: "destructive", title: "Error", description: result.message })
+      }
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to mark as claimed." })
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // THE NEW ASYNC FIRESTORE VERIFICATION LOGIC
+  const verifyStudentInFirestore = async (searchTerm: string) => {
+    setIsProcessing(true)
+    try {
+      let studentUser: any = null
+      
+      // 1. Try direct ID lookup first
+      const directUser = await getUserDb(searchTerm)
+      if (directUser && directUser.role === "student") {
+        studentUser = directUser
+      } else {
+        // 2. Fallback: Search all users by email or internal studentId
+        const allUsers = await getAllUsersDb()
+        studentUser = allUsers.find(u => 
+          u.role === "student" && (
+            u.email?.toLowerCase() === searchTerm.toLowerCase() ||
+            u.profileData?.studentId?.toLowerCase() === searchTerm.toLowerCase()
+          )
+        )
+      }
+
+      if (!studentUser) {
+        setVerificationResult({
+          verified: false,
+          failureReason: "Student Not Found",
+          failureDetails: "No student found with this ID or email in the database.",
+        })
+        toast({ variant: "destructive", title: "Verification failed", description: "Student not found." })
+        setIsProcessing(false)
+        return
+      }
+
+      // 3. Student Found -> Fetch Application
+      const application = await getStudentApplicationDb(studentUser.id)
+      const profile = studentUser.profileData || {}
+
+      if (application && application.status === "approved") {
+        // Stub eligibility logic
+        const eligibilityResult = markStudentAsEligible(studentUser.id)
+        
+        // Check if claimed (Using application's claim status or fallback)
+        const alreadyClaimed = application.isClaimed || hasStudentClaimed(studentUser.id)
+        
+        setIsClaimed(alreadyClaimed)
+        setVerificationResult({
+          verified: true,
+          userId: studentUser.id,
+          student: {
+            id: profile.studentId || studentUser.id,
+            name: profile.fullName || studentUser.name || "Unknown",
+            course: application.course || profile.course || "N/A",
+            yearLevel: application.yearLevel || profile.yearLevel || "N/A",
+            status: alreadyClaimed ? "claimed" : application.status,
+            profilePicture: profile.profilePicture || studentUser.profilePicture,
+          },
+        })
+
+        toast({
+          title: <div className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Verification successful</div>,
+          description: "Student verified and marked as eligible",
+        })
+      } else {
+        // Handle failures (Pending, Rejected, No App)
+        let failureReason = "No Approved Application"
+        let failureDetails = "Student found but has no approved scholarship application."
+
+        if (application) {
+          if (application.status === "pending") {
+            failureReason = "Application Pending"
+            failureDetails = "Student's application is still under review."
+          } else if (application.status === "rejected") {
+            failureReason = "Application Rejected"
+            failureDetails = application.feedback ? `Rejected: ${application.feedback}` : "Application was rejected."
+          }
+        } else {
+          failureReason = "No Application Found"
+          failureDetails = "Student is registered but has not submitted an application."
+        }
+
+        setVerificationResult({ verified: false, failureReason, failureDetails })
+        toast({ variant: "destructive", title: "Verification failed", description: failureReason })
+      }
+    } catch (error) {
+      console.error("Verification Error:", error)
+      toast({ variant: "destructive", title: "Error", description: "Database connection failed." })
+    } finally {
+      setIsProcessing(false)
     }
   }
 
   const handleManualVerify = () => {
     if (!studentId.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please enter a student ID or email",
-      })
+      toast({ variant: "destructive", title: "Error", description: "Please enter a student ID or email" })
       return
     }
-
-    const searchTerm = studentId.trim().toLowerCase()
-
-    // Get all users and find the student with matching student ID, email, or user ID
-    const users = getUsers()
-    
-    const student = users.find(
-      (user) =>
-        user.role === "student" &&
-        (user.studentProfile?.studentId?.toLowerCase() === searchTerm ||
-          user.studentProfile?.education?.studentId?.toLowerCase() === searchTerm ||
-          user.profileData?.studentId?.toLowerCase() === searchTerm ||
-          user.email?.toLowerCase() === searchTerm ||
-          user.id?.toLowerCase() === searchTerm)
-    )
-
-
-
-    if (student) {
-      const profile = student.studentProfile || student.profileData
-      
-      // Check if student has an approved application
-      // Application.studentId is the user's id (not a separate student ID number)
-      const applications = getApplications()
-      
-      const studentApplication = applications.find(
-        (app) => app.studentId === student.id && app.status === "approved"
-      )
-
-if (studentApplication) {
-  const eligibilityResult = markStudentAsEligible(profile?.studentId || student.id)
-  
-  // Check if already claimed
-  const alreadyClaimed = hasStudentClaimed(student.id)
-  setIsClaimed(alreadyClaimed)
-  
-  setVerificationResult({
-  verified: true,
-  userId: student.id, // Store the user ID for marking as claimed
-  student: {
-  id: profile?.studentId || profile?.education?.studentId || student.id,
-  name: profile?.fullName ||
-  (profile?.firstName ? `${profile.firstName} ${profile.lastName || ''}`.trim() : null) ||
-  student.name ||
-  "Unknown",
-  course: profile?.course || profile?.education?.course || "N/A",
-  yearLevel: profile?.yearLevel || profile?.education?.yearLevel || "N/A",
-  status: alreadyClaimed ? "claimed" : studentApplication.status,
-  profilePicture: profile?.profilePicture || student.profilePicture,
-  },
-  })
-
-        toast({
-          title: (
-            <div className="flex items-center gap-2">
-              <Check className="h-4 w-4 text-green-600" />
-              Verification successful
-            </div>
-          ),
-          description: eligibilityResult.success
-            ? "Student verified and marked as eligible"
-            : "Student verified but eligibility marking failed",
-        })
-      } else {
-        // Student found but no approved application
-        const allApplications = applications.filter((app) => app.studentId === student.id)
-        const latestApp = allApplications[allApplications.length - 1]
-        
-        let failureReason = "No Approved Application"
-        let failureDetails = "Student found but has no approved scholarship application."
-        
-        if (latestApp) {
-          if (latestApp.status === "pending") {
-            failureReason = "Application Pending"
-            failureDetails = "Student's application is still under review. Please wait for admin approval."
-          } else if (latestApp.status === "rejected") {
-            failureReason = "Application Rejected"
-            failureDetails = latestApp.feedback 
-              ? `Application was rejected: ${latestApp.feedback}`
-              : "Student's application was rejected by the scholarship committee."
-          }
-        } else {
-          failureReason = "No Application Found"
-          failureDetails = "Student is registered but has not submitted a scholarship application."
-        }
-        
-        setVerificationResult({
-          verified: false,
-          failureReason,
-          failureDetails,
-        })
-
-        toast({
-          variant: "destructive",
-          title: "Verification failed",
-          description: failureReason,
-        })
-      }
-    } else {
-      setVerificationResult({
-        verified: false,
-        failureReason: "Student Not Found",
-        failureDetails: "No student found with this ID, email, or user ID. Please check the information and try again.",
-      })
-
-      toast({
-        variant: "destructive",
-        title: "Verification failed",
-        description: "Student not found. Try searching by email or user ID.",
-      })
-    }
+    verifyStudentInFirestore(studentId.trim())
   }
 
   const handleQRCodeResult = async (result: string) => {
     try {
       let studentIdFromQR: string
-      let data: any = {}; // Declare data variable
 
-      // Check for new simple format: BTS:studentId
+      // Handle simple format
       if (result.startsWith("BTS:")) {
         studentIdFromQR = result.replace("BTS:", "")
-      }
-      // Check if QR code is encrypted (legacy)
+      } 
+      // Handle legacy encryption
       else if (result.startsWith("BTS_ENCRYPTED:")) {
         const encryptedData = result.replace("BTS_ENCRYPTED:", "")
         const secretKey = "BTS-SCHOLARSHIP-SECRET-KEY-2024"
         const decryptedJson = await decryptData(encryptedData, secretKey)
-        data = JSON.parse(decryptedJson)
-        studentIdFromQR = data.studentId || data.id
-      } else {
-        // Handle legacy JSON format
+        const data = JSON.parse(decryptedJson)
+        studentIdFromQR = data.id || data.studentId
+      } 
+      // Handle the exact format we just built
+      else {
         try {
-          data = JSON.parse(result)
-          studentIdFromQR = data.studentId || data.id
+          const data = JSON.parse(result)
+          studentIdFromQR = data.id || data.studentId
         } catch {
-          // If not JSON, treat the whole string as student ID
           studentIdFromQR = result
         }
       }
 
       setStudentId(studentIdFromQR)
-
-      // Get all users and find the student with matching student ID
-      const users = getUsers()
-
-      const student = users.find(
-        (user) =>
-          user.role === "student" &&
-          (user.studentProfile?.studentId === studentIdFromQR ||
-            user.profileData?.studentId === studentIdFromQR ||
-            user.id === studentIdFromQR),
-      )
-
-      if (student) {
-        const profile = student.studentProfile || student.profileData
-        if (profile) {
-          // Check if student has an approved application
-          const applications = getApplications()
-
-          const studentApplication = applications.find((app) => app.studentId === student.id && app.status === "approved")
-
-if (studentApplication) {
-  const eligibilityResult = markStudentAsEligible(profile.studentId || student.id)
-  
-  // Check if already claimed
-  const alreadyClaimed = hasStudentClaimed(student.id)
-  setIsClaimed(alreadyClaimed)
-  
-  setVerificationResult({
-  verified: true,
-  userId: student.id, // Store the user ID for marking as claimed
-  student: {
-  id: profile.studentId || student.id,
-  name: profile.fullName || profile.firstName + " " + profile.lastName || student.name,
-  course: profile.course || profile.education?.course || "N/A",
-  yearLevel: profile.yearLevel || profile.education?.yearLevel || "N/A",
-  status: alreadyClaimed ? "claimed" : studentApplication.status,
-  profilePicture: profile.profilePicture || student.profilePicture,
-  },
-  })
-
-            toast({
-              title: (
-                <div className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-green-600" />
-                  Verification successful
-                </div>
-              ),
-              description: eligibilityResult.success
-                ? "Student verified and marked as eligible"
-                : "Student verified but eligibility marking failed",
-            })
-          } else {
-            // Student found but no approved application
-            const allApplications = applications.filter((app) => app.studentId === student.id)
-            const latestApp = allApplications[allApplications.length - 1]
-            
-            let failureReason = "No Approved Application"
-            let failureDetails = "Student found but has no approved scholarship application."
-            
-            if (latestApp) {
-              if (latestApp.status === "pending") {
-                failureReason = "Application Pending"
-                failureDetails = "Student's application is still under review. Please wait for admin approval."
-              } else if (latestApp.status === "rejected") {
-                failureReason = "Application Rejected"
-                failureDetails = latestApp.feedback 
-                  ? `Application was rejected: ${latestApp.feedback}`
-                  : "Student's application was rejected by the scholarship committee."
-              }
-            } else {
-              failureReason = "No Application Found"
-              failureDetails = "Student is registered but has not submitted a scholarship application."
-            }
-            
-            setVerificationResult({
-              verified: false,
-              failureReason,
-              failureDetails,
-            })
-
-            toast({
-              variant: "destructive",
-              title: "Verification failed",
-              description: failureReason,
-            })
-          }
-        }
-      } else {
-        setVerificationResult({
-          verified: false,
-          failureReason: "Student Not Found",
-          failureDetails: "No student found with this QR code. The student may not be registered in the system.",
-        })
-
-        toast({
-          variant: "destructive",
-          title: "Verification failed",
-          description: "Student not found in the system",
-        })
-      }
-
-      // Camera stays on for continuous scanning - no setIsScanning(false) here
+      verifyStudentInFirestore(studentIdFromQR)
+      
     } catch (error) {
-      console.error("QR Code decryption error:", error)
-      toast({
-        variant: "destructive",
-        title: "Invalid QR code",
-        description: "The QR code contains invalid or corrupted data",
-      })
+      console.error("QR Code parse error:", error)
+      toast({ variant: "destructive", title: "Invalid QR code", description: "Could not read QR data" })
     }
   }
 
@@ -400,10 +273,11 @@ if (studentApplication) {
                         onChange={(e) => setStudentId(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleManualVerify()}
                         className="pl-10"
+                        disabled={isProcessing}
                       />
                     </div>
-                    <Button onClick={handleManualVerify} className="shrink-0">
-                      <Check className="h-4 w-4 mr-2" />
+                    <Button onClick={handleManualVerify} className="shrink-0" disabled={isProcessing}>
+                      {isProcessing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
                       Verify
                     </Button>
                   </div>
@@ -451,23 +325,17 @@ if (studentApplication) {
             <CardDescription>Student information and verification status</CardDescription>
           </CardHeader>
           <CardContent>
-            {verificationResult ? (
+            {isProcessing ? (
+               <div className="flex flex-col items-center justify-center h-48 text-center text-indigo-500">
+                 <Loader2 className="h-8 w-8 animate-spin mb-4" />
+                 <p>Processing...</p>
+               </div>
+            ) : verificationResult ? (
               verificationResult.verified ? (
                 <div className="space-y-4">
                   <div className="rounded-lg bg-green-50 p-4 text-green-700 border border-green-200">
                     <div className="flex items-center gap-2 font-semibold">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-5 w-5"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
+                      <Check className="h-5 w-5" />
                       Student Verified & Eligible
                     </div>
                     <p className="mt-1 text-sm">
@@ -479,8 +347,8 @@ if (studentApplication) {
                     <div className="relative">
                       {verificationResult.student?.profilePicture ? (
                         <img
-                          src={verificationResult.student.profilePicture || "/placeholder.svg"}
-                          alt={`${verificationResult.student.name} profile`}
+                          src={verificationResult.student.profilePicture}
+                          alt="Profile"
                           className="w-16 h-16 rounded-full object-cover border-2 border-green-500"
                         />
                       ) : (
@@ -509,40 +377,30 @@ if (studentApplication) {
                     </div>
                     <div className="grid grid-cols-2 gap-1">
                       <div className="text-sm font-medium">Status:</div>
-                      <div className="text-sm">{verificationResult.student?.status}</div>
+                      <div className="text-sm font-bold text-green-600 uppercase">{verificationResult.student?.status}</div>
                     </div>
                   </div>
 
                   {isClaimed ? (
-  <div className="w-full p-4 rounded-lg bg-green-50 border border-green-200 text-center">
-    <div className="flex items-center justify-center gap-2 text-green-700 font-medium">
-      <Check className="h-5 w-5" />
-      Financial Aid Successfully Claimed
-    </div>
-    <p className="text-sm text-green-600 mt-2">
-      Application archived to history. Student can now apply for next semester.
-    </p>
-    <p className="text-xs text-muted-foreground mt-2">
-      Resetting in a moment...
-    </p>
-  </div>
-) : (
-  <Button className="w-full" onClick={handleMarkAsClaimed}>
-    Mark as Claimed
-  </Button>
-)}
+                    <div className="w-full p-4 rounded-lg bg-green-50 border border-green-200 text-center">
+                      <div className="flex items-center justify-center gap-2 text-green-700 font-medium">
+                        <Check className="h-5 w-5" /> Financial Aid Successfully Claimed
+                      </div>
+                      <p className="text-sm text-green-600 mt-2">Application archived to history.</p>
+                      <p className="text-xs text-muted-foreground mt-2">Resetting in a moment...</p>
+                    </div>
+                  ) : (
+                    <Button className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={handleMarkAsClaimed} disabled={isProcessing}>
+                      {isProcessing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                      Mark as Claimed
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
                   <div className="rounded-lg bg-red-50 p-4 text-red-700 border border-red-200">
                     <div className="flex items-center gap-2 font-semibold">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path
-                          fillRule="evenodd"
-                          d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
+                      <XCircle className="h-5 w-5" />
                       Verification Failed
                     </div>
                   </div>
@@ -550,15 +408,11 @@ if (studentApplication) {
                   <div className="bg-gray-50 rounded-lg border p-4 space-y-3">
                     <div>
                       <p className="text-sm font-medium text-gray-500">Reason</p>
-                      <p className="text-base font-semibold text-red-600">
-                        {verificationResult.failureReason || "Unknown Error"}
-                      </p>
+                      <p className="text-base font-semibold text-red-600">{verificationResult.failureReason}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-500">Details</p>
-                      <p className="text-sm text-gray-700">
-                        {verificationResult.failureDetails || "This student is not eligible or not found in the system."}
-                      </p>
+                      <p className="text-sm text-gray-700">{verificationResult.failureDetails}</p>
                     </div>
                   </div>
                   
