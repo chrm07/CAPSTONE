@@ -8,8 +8,24 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { AlertCircle, LogIn, Eye, EyeOff, GraduationCap, Shield, Users } from "lucide-react"
+import { AlertCircle, Eye, EyeOff, GraduationCap, Shield } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
+
+// 🔥 NEW: Exact routing logic to their specific dashboards
+const getRedirectPath = (userData: any) => {
+  if (userData.role === "student") return "/student/dashboard"
+  
+  // Specific Admin Role Routing
+  switch (userData.adminRole) {
+    case "scanner_staff":
+      return "/admin/scanner-dashboard" 
+    case "verifier_staff":
+      return "/admin/verifier-dashboard" 
+    case "head_admin":
+    default:
+      return "/admin/dashboard" 
+  }
+}
 
 export default function LoginPage() {
   const { user, login } = useAuth()
@@ -26,7 +42,7 @@ export default function LoginPage() {
   // Redirect if already logged in via session
   useEffect(() => {
     if (user) {
-      const path = user.role === "admin" ? "/admin/dashboard" : "/student/dashboard"
+      const path = getRedirectPath(user)
       router.push(path)
     }
   }, [user, router])
@@ -60,9 +76,10 @@ export default function LoginPage() {
         description: `Welcome back, ${loggedInUser.name}!`,
       })
 
-      // REDIRECT BASED ON REAL DB ROLE
-      const dashboardPath = loggedInUser.role === "admin" ? "/admin/dashboard" : "/student/dashboard"
+      // Redirect based on specific admin role
+      const dashboardPath = getRedirectPath(loggedInUser)
       router.push(dashboardPath)
+      
     } catch (error) {
       setLoginError("An error occurred during login. Please try again.")
       setIsLoading(false)

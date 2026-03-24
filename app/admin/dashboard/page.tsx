@@ -1,16 +1,59 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { AdminLayout } from "@/components/admin-layout"
-import { FileText, Clock, LayoutDashboard, CheckCircle, XCircle, Calendar } from "lucide-react"
+import { FileText, Clock, LayoutDashboard, CheckCircle, XCircle, Calendar, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useAuth } from "@/contexts/auth-context"
 
-// Import ONLY the new Firestore functions
+// Import the Firestore functions
 import { getDashboardStatsDb, getRecentApplicationsDb } from "@/lib/storage"
 
-// Turn this into an async Server Component (Notice we removed "use client")
-export default async function AdminDashboard() {
-  // Fetch real data from Firestore directly on the server!
-  const stats = await getDashboardStatsDb()
-  const recentApplications = await getRecentApplicationsDb(10)
+export default function AdminDashboard() {
+  const { user } = useAuth()
+  const router = useRouter()
+  
+  const [isLoading, setIsLoading] = useState(true)
+  const [stats, setStats] = useState({ totalApplications: 0, pendingApplications: 0, approvedApplications: 0, rejectedApplications: 0 })
+  const [recentApplications, setRecentApplications] = useState<any[]>([])
+
+  // 🔥 THE BOUNCER: Security Check & Redirection
+  useEffect(() => {
+    // Wait until the user object is fully loaded
+    if (user) {
+      if (user.role === "admin") {
+        if (user.adminRole === "scanner_staff") {
+          router.replace("/admin/verification")
+        } else if (user.adminRole === "verifier_staff") {
+          router.replace("/admin/applications")
+        } else if (user.adminRole === "head_admin") {
+          // If they are a Head Admin, allow them to stay and fetch the data
+          fetchDashboardData()
+        }
+      } else {
+        // If a student somehow gets here, send them back
+        router.replace("/student/dashboard")
+      }
+    }
+  }, [user, router])
+
+  // Only run this if the Bouncer approves them
+  const fetchDashboardData = async () => {
+    try {
+      const [fetchedStats, fetchedApps] = await Promise.all([
+        getDashboardStatsDb(),
+        getRecentApplicationsDb(10)
+      ])
+      setStats(fetchedStats)
+      setRecentApplications(fetchedApps)
+    } catch (error) {
+      console.error("Failed to load dashboard data:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   // Helper function to format dates safely
   const formatDate = (dateString?: string) => {
@@ -29,11 +72,23 @@ export default async function AdminDashboard() {
     }
   }
 
+  // 🔥 SECURITY WALL: Show a loading screen until we confirm they are a Head Admin
+  if (isLoading || !user || user.adminRole !== "head_admin") {
+    return (
+      <AdminLayout>
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-4 text-emerald-600">
+          <Loader2 className="h-10 w-10 animate-spin" />
+          <p className="text-sm font-medium text-slate-500">Verifying permissions...</p>
+        </div>
+      </AdminLayout>
+    )
+  }
+
   return (
     <AdminLayout>
-      <div className="mb-8">
+      <div className="mb-8 animate-fade-in">
         <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-md">
             <LayoutDashboard className="h-6 w-6 text-white" />
           </div>
           <div>
@@ -43,13 +98,13 @@ export default async function AdminDashboard() {
         </div>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
         {/* Statistics Cards */}
         <div className="grid gap-6 md:grid-cols-3">
-          <Card className="border-0 shadow-sm bg-gradient-to-br from-blue-50 to-blue-100/50">
+          <Card className="border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100/50 hover:shadow-lg transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Total Applications</CardTitle>
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-200/50">
                 <FileText className="h-5 w-5 text-blue-600" />
               </div>
             </CardHeader>
@@ -59,10 +114,10 @@ export default async function AdminDashboard() {
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-sm bg-gradient-to-br from-amber-50 to-amber-100/50">
+          <Card className="border-0 shadow-md bg-gradient-to-br from-amber-50 to-amber-100/50 hover:shadow-lg transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Pending Applications</CardTitle>
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-200/50">
                 <Clock className="h-5 w-5 text-amber-600" />
               </div>
             </CardHeader>
@@ -77,10 +132,10 @@ export default async function AdminDashboard() {
             </CardContent>
           </Card>
 
-          <Card className="border-0 shadow-sm bg-gradient-to-br from-emerald-50 to-emerald-100/50">
+          <Card className="border-0 shadow-md bg-gradient-to-br from-emerald-50 to-emerald-100/50 hover:shadow-lg transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Approved Scholars</CardTitle>
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-200/50">
                 <CheckCircle className="h-5 w-5 text-emerald-600" />
               </div>
             </CardHeader>
@@ -97,10 +152,10 @@ export default async function AdminDashboard() {
         </div>
 
         {/* Recent Applications */}
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-4">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-4 bg-slate-50/50 border-b border-slate-100">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-sm border border-slate-200">
                 <Calendar className="h-4 w-4 text-slate-600" />
               </div>
               <div>
@@ -111,13 +166,13 @@ export default async function AdminDashboard() {
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <div className="space-y-4">
               {recentApplications.length > 0 ? (
                 recentApplications.map((application) => (
                   <div
                     key={application.id}
-                    className="flex items-center justify-between p-4 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-100/50 transition-colors"
+                    className="flex items-center justify-between p-4 rounded-xl border border-slate-200 bg-white hover:border-emerald-200 hover:shadow-sm transition-all"
                   >
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2">
@@ -126,17 +181,17 @@ export default async function AdminDashboard() {
                         ) : application.status === "rejected" ? (
                           <XCircle className="h-5 w-5 text-red-600" />
                         ) : (
-                          <Clock className="h-5 w-5 text-amber-600" />
+                          <Clock className="h-5 w-5 text-amber-600 animate-pulse" />
                         )}
                       </div>
                       <div>
                         <h4 className="font-semibold text-slate-900">{application.fullName}</h4>
-                        <div className="flex items-center gap-4 text-sm text-slate-600">
+                        <div className="flex items-center gap-4 text-sm text-slate-500">
                           <span>{application.course}</span>
-                          <span>•</span>
-                          <span>{application.school}</span>
-                          <span>•</span>
-                          <span>{application.yearLevel}</span>
+                          <span className="hidden sm:inline">•</span>
+                          <span className="hidden sm:inline">{application.school}</span>
+                          <span className="hidden sm:inline">•</span>
+                          <span className="hidden sm:inline">{application.yearLevel}</span>
                         </div>
                       </div>
                     </div>
@@ -151,6 +206,7 @@ export default async function AdminDashboard() {
                       
                       <Badge 
                         variant={application.status === "approved" ? "success" : application.status === "rejected" ? "destructive" : "outline"}
+                        className={application.status === "pending" ? "bg-amber-50 text-amber-700 border-amber-200" : ""}
                       >
                         {application.status.toUpperCase()}
                       </Badge>
@@ -158,9 +214,10 @@ export default async function AdminDashboard() {
                   </div>
                 ))
               ) : (
-                <div className="text-center py-8 text-slate-500">
+                <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
                   <FileText className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-                  <p>No applications found in the database.</p>
+                  <h3 className="text-lg font-medium text-slate-900 mb-1">No applications yet</h3>
+                  <p>Applications will appear here once students submit them.</p>
                 </div>
               )}
             </div>

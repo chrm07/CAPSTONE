@@ -524,3 +524,73 @@ export async function markStudentAsClaimed(studentId: string, adminId: string) {
     return { success: false, message: `Firebase Error: ${error.message}` }
   }
 }
+// ============================================================================
+// PHASE 17: STAFF MANAGEMENT FIRESTORE FUNCTIONS
+// ============================================================================
+
+export async function getStaffMembersDb(): Promise<User[]> {
+  try {
+    const q = query(collection(db, "users"), where("role", "==", "admin"))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map(doc => doc.data() as User)
+  } catch (error) {
+    console.error("Error fetching staff:", error)
+    return []
+  }
+}
+
+export async function createStaffMemberDb(data: { name: string; email: string; password: string; adminRole: AdminRole }): Promise<{ success: boolean; user?: User; error?: string }> {
+  try {
+    // Check if email already exists
+    const existing = await getUserByEmailDb(data.email)
+    if (existing) {
+      return { success: false, error: "An account with this email already exists." }
+    }
+
+    const userId = `admin-${Date.now()}`
+    const newUser: User = {
+      id: userId,
+      name: data.name,
+      email: data.email.toLowerCase(),
+      password: data.password, // Note: In a production app with Firebase Auth, this is handled via auth()
+      role: "admin",
+      adminRole: data.adminRole,
+      profileData: {
+        fullName: data.name,
+        email: data.email.toLowerCase(),
+        contactNumber: "",
+        position: getAdminRoleLabel(data.adminRole),
+        department: "Scholarship Office",
+      }
+    }
+    
+    await setDoc(doc(db, "users", userId), newUser)
+    return { success: true, user: newUser }
+  } catch (error) {
+    console.error("Error creating staff:", error)
+    return { success: false, error: "Database error. Failed to create staff member." }
+  }
+}
+
+export async function updateStaffRoleDb(userId: string, newRole: AdminRole): Promise<boolean> {
+  try {
+    await updateDoc(doc(db, "users", userId), {
+      adminRole: newRole,
+      "profileData.position": getAdminRoleLabel(newRole)
+    })
+    return true
+  } catch (error) {
+    console.error("Error updating role:", error)
+    return false
+  }
+}
+
+export async function deleteStaffMemberDb(userId: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, "users", userId))
+    return true
+  } catch (error) {
+    console.error("Error deleting staff:", error)
+    return false
+  }
+}
