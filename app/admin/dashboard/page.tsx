@@ -12,50 +12,65 @@ import { useAuth } from "@/contexts/auth-context"
 import { getDashboardStatsDb, getRecentApplicationsDb } from "@/lib/storage"
 
 export default function AdminDashboard() {
-  const { user } = useAuth()
+  const { user, isLoading: authLoading } = useAuth()
   const router = useRouter()
   
   const [isLoading, setIsLoading] = useState(true)
   const [stats, setStats] = useState({ totalApplications: 0, pendingApplications: 0, approvedApplications: 0, rejectedApplications: 0 })
   const [recentApplications, setRecentApplications] = useState<any[]>([])
 
-  // 🔥 THE BOUNCER: Security Check & Redirection
+  // 🔥 THE IMPROVED BOUNCER: Fixes the infinite spinner
   useEffect(() => {
-    if (user) {
+    let isMounted = true; // Prevents memory leaks if the user navigates away fast
+
+    const verifyAndLoad = async () => {
+      // Wait for the auth context to finish loading first
+      if (authLoading) return;
+
+      if (!user) {
+        router.replace("/login")
+        return
+      }
+
+      if (user.role === "student") {
+        router.replace("/student/dashboard")
+        return
+      }
+
+      // If they are an admin, check their specific role
       if (user.role === "admin") {
-        // 🔥 THE FIX: If adminRole is missing (legacy account), default to "head_admin"
+        // Fallback for legacy admin accounts that don't have an adminRole set
         const currentAdminRole = user.adminRole || "head_admin"
 
-        if (currentAdminRole === "scanner_staff") {
-          router.replace("/admin/scanner-dashboard")
-        } else if (currentAdminRole === "verifier_staff") {
-          router.replace("/admin/verifier-dashboard")
-        } else {
-          // If they are a Head Admin, allow them to stay and fetch the data
-          fetchDashboardData()
+        if (currentAdminRole === "scanner_staff" || currentAdminRole === "verifier_staff") {
+          // Send staff to their unified staff dashboard!
+          router.replace("/admin/staff-dashboard")
+          return
         }
-      } else {
-        // If a student somehow gets here, send them back
-        router.replace("/student/dashboard")
+
+        // If they made it this far, they are the Head Admin. Let's load the data!
+        try {
+          const [fetchedStats, fetchedApps] = await Promise.all([
+            getDashboardStatsDb(),
+            getRecentApplicationsDb(10)
+          ])
+          
+          if (isMounted) {
+            setStats(fetchedStats)
+            setRecentApplications(fetchedApps)
+            setIsLoading(false) // Turn off the spinner!
+          }
+        } catch (error) {
+          console.error("Failed to load dashboard data:", error)
+          if (isMounted) setIsLoading(false) // Turn off spinner even if it fails
+        }
       }
     }
-  }, [user, router])
 
-  // Only run this if the Bouncer approves them
-  const fetchDashboardData = async () => {
-    try {
-      const [fetchedStats, fetchedApps] = await Promise.all([
-        getDashboardStatsDb(),
-        getRecentApplicationsDb(10)
-      ])
-      setStats(fetchedStats)
-      setRecentApplications(fetchedApps)
-    } catch (error) {
-      console.error("Failed to load dashboard data:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+    verifyAndLoad()
+
+    return () => { isMounted = false }
+  }, [user, authLoading, router])
 
   // Helper function to format dates safely
   const formatDate = (dateString?: string) => {
@@ -74,15 +89,14 @@ export default function AdminDashboard() {
     }
   }
 
-  // 🔥 SECURITY WALL FIX: Also apply the fallback here
+  // Security Wall UI
   const currentAdminRole = user?.adminRole || "head_admin"
-
-  if (isLoading || !user || currentAdminRole !== "head_admin") {
+  if (authLoading || isLoading || !user || currentAdminRole !== "head_admin") {
     return (
       <AdminLayout>
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4 text-emerald-600">
           <Loader2 className="h-10 w-10 animate-spin" />
-          <p className="text-sm font-medium text-slate-500">Verifying permissions...</p>
+          <p className="text-sm font-medium text-slate-500">Verifying permissions and loading data...</p>
         </div>
       </AdminLayout>
     )

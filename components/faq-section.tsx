@@ -2,7 +2,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 
 export function FaqSection() {
   return (
-    <section className="relative w-full bg-white py-16 md:py-24 overflow-hidden">
+    // 🔥 ADDED id="faq" HERE
+    <section id="faq" className="relative w-full bg-white py-16 md:py-24 overflow-hidden">
       {/* Background elements */}
       <div className="absolute inset-0 z-0">
         <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-green-50 to-transparent"></div>
@@ -13,7 +14,7 @@ export function FaqSection() {
         <div className="absolute -right-20 bottom-1/3 h-64 w-64 rounded-full bg-gradient-to-tr from-teal-100 to-green-50 opacity-70 blur-3xl"></div>
       </div>
 
-      <div className="container relative z-10 px-4 md:px-6">
+      <div className="container relative z-10 px-4 md:px-6 mx-auto">
         <div className="flex flex-col items-center justify-center space-y-4 text-center">
           <div className="space-y-2">
             <div className="inline-block rounded-full bg-gradient-to-r from-green-100 to-emerald-100 px-4 py-1.5 text-sm font-medium text-green-800 shadow-md">

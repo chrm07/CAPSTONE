@@ -594,3 +594,66 @@ export async function deleteStaffMemberDb(userId: string): Promise<boolean> {
     return false
   }
 }
+// ============================================================================
+// PHASE 18: REAL-TIME NOTIFICATION ENGINE
+// ============================================================================
+import { writeBatch } from "firebase/firestore"; // Add this to your imports at the very top of storage.ts if it isn't there!
+
+export async function createNotificationDb(data: Omit<Notification, "id" | "isRead" | "createdAt">) {
+  const docRef = doc(collection(db, "notifications"));
+  const notification: Notification = {
+    ...data,
+    id: docRef.id,
+    isRead: false,
+    createdAt: new Date().toISOString()
+  };
+  await setDoc(docRef, notification);
+  return notification;
+}
+
+export async function getNotificationsByUserIdDb(userId: string): Promise<Notification[]> {
+  try {
+    const q = query(collection(db, "notifications"), where("userId", "==", userId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => doc.data() as Notification)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } catch (error) {
+    console.error("Error fetching notifications:", error);
+    return [];
+  }
+}
+
+export async function markNotificationAsReadDb(id: string) {
+  await updateDoc(doc(db, "notifications", id), { isRead: true });
+}
+
+export async function markAllNotificationsAsReadDb(userId: string) {
+  const q = query(collection(db, "notifications"), where("userId", "==", userId), where("isRead", "==", false));
+  const snapshot = await getDocs(q);
+  const batch = writeBatch(db);
+  snapshot.docs.forEach(doc => {
+    batch.update(doc.ref, { isRead: true });
+  });
+  await batch.commit();
+}
+
+// 🔥 Helper function to instantly alert all Admins when a student applies!
+export async function notifyAdminsDb(title: string, message: string, actionUrl: string) {
+  const q = query(collection(db, "users"), where("role", "==", "admin"));
+  const snapshot = await getDocs(q);
+  const admins = snapshot.docs.map(doc => doc.data() as User);
+
+  const promises = admins.map(admin => {
+    // Only notify Head Admins and Verifiers (Scanners don't need to see new applications)
+    if (admin.adminRole === "head_admin" || admin.adminRole === "verifier_staff" || !admin.adminRole) {
+      return createNotificationDb({
+        userId: admin.id,
+        title,
+        message,
+        type: "info",
+        actionUrl
+      });
+    }
+  });
+  await Promise.all(promises);
+}

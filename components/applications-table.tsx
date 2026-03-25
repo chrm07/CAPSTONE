@@ -18,6 +18,7 @@ import {
   getApplicationsDb, 
   updateApplicationStatusDb, 
   getDocumentsByStudentIdDb,
+  createNotificationDb, // 🔥 WE ADDED THIS
   type Application,
   type Document 
 } from "@/lib/storage"
@@ -50,7 +51,7 @@ export function ApplicationsTable({ limit }: ApplicationsTableProps) {
   const [studentDocs, setStudentDocs] = useState<Document[]>([])
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null)
   
-  // NEW: Keep track of which document is currently active in the viewer
+  // Keep track of which document is currently active in the viewer
   const [activeDocument, setActiveDocument] = useState<Document | null>(null)
   
   // Rejection States
@@ -100,12 +101,26 @@ export function ApplicationsTable({ limit }: ApplicationsTableProps) {
     }
   }
 
+  // 🔥 UPDATED APPROVAL WITH NOTIFICATION
   const handleApproveApplication = async (applicationId: string) => {
     setIsApproving(applicationId)
+    const appToApprove = applications.find(a => a.id === applicationId)
+    
     try {
       await updateApplicationStatusDb(applicationId, "approved")
       setApplications(applications.map((app) => (app.id === applicationId ? { ...app, status: "approved" } : app)))
       toast({ title: "Approved!", description: "Application status updated.", variant: "success" })
+
+      // Send the student an alert!
+      if (appToApprove) {
+        await createNotificationDb({
+          userId: appToApprove.studentId,
+          title: "Application Approved! 🎉",
+          message: "Congratulations! Your scholarship application has been verified and approved. Check your portal for claiming instructions.",
+          type: "success",
+          actionUrl: "/student/dashboard"
+        })
+      }
     } catch (error) {
       toast({ title: "Error", description: "Approval failed.", variant: "destructive" })
     } finally {
@@ -113,6 +128,7 @@ export function ApplicationsTable({ limit }: ApplicationsTableProps) {
     }
   }
 
+  // 🔥 UPDATED REJECTION WITH NOTIFICATION
   const handleRejectApplication = async () => {
     if (!applicationToReject || !rejectionReason.trim()) return
     setIsRejecting(true)
@@ -125,6 +141,15 @@ export function ApplicationsTable({ limit }: ApplicationsTableProps) {
       ))
       setRejectDialogOpen(false)
       toast({ title: "Rejected", description: "Student has been notified." })
+
+      // Send the student a warning alert!
+      await createNotificationDb({
+        userId: applicationToReject.studentId,
+        title: "Application Update Required",
+        message: `Your application requires attention. Reason: ${rejectionReason.trim()}`,
+        type: "warning",
+        actionUrl: "/student/dashboard"
+      })
     } catch (error) {
       toast({ title: "Error", description: "Rejection failed.", variant: "destructive" })
     } finally {

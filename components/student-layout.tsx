@@ -1,13 +1,17 @@
 "use client"
 
 import type React from "react"
-import { FileText, QrCode, Search, History, Settings, User } from "lucide-react"
-import { Input } from "@/components/ui/input"
-
 import { useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
+import { 
+  FileText, QrCode, Search, History, Settings, User, 
+  LogOut, Menu, X, ChevronDown, Bell, Calendar, 
+  CheckCircle, Info, AlertCircle, Loader2 
+} from "lucide-react"
+
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,12 +31,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { LogOut, Menu, X, ChevronDown, Bell, Calendar, CheckCircle, Info, AlertCircle } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
+
+// 🔥 IMPORT REAL DATABASE FUNCTIONS
 import {
-  getNotificationsByUserId,
-  markNotificationAsRead,
-  markAllNotificationsAsRead,
+  getNotificationsByUserIdDb,
+  markNotificationAsReadDb,
+  markAllNotificationsAsReadDb,
   type Notification,
 } from "@/lib/storage"
 
@@ -44,6 +49,7 @@ export function StudentLayout({ children }: StudentLayoutProps) {
   const router = useRouter()
   const pathname = usePathname()
   const { user, logout, isLoading } = useAuth()
+  
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [hasCheckedAuth, setHasCheckedAuth] = useState(false)
@@ -51,80 +57,63 @@ export function StudentLayout({ children }: StudentLayoutProps) {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
 
+  // Authentication Guard
   useEffect(() => {
-    // Only check auth once loading is complete
     if (!isLoading && !hasCheckedAuth) {
       setHasCheckedAuth(true)
-
-      // Only redirect if not logged in or not a student
       if (!user) {
-        console.log("StudentLayout: No user found, redirecting to login")
         router.push("/login")
       } else if (user.role !== "student") {
-        console.log("StudentLayout: User is not a student, redirecting to admin dashboard")
         router.push("/admin/dashboard")
-      } else {
-        console.log("StudentLayout: User is a student, allowing access")
       }
     }
   }, [user, isLoading, hasCheckedAuth, router])
 
-  // Load notifications when user is available
+  // 🔥 LIVE NOTIFICATION FETCHING
+  const refreshNotifications = async () => {
+    if (user?.id && user.role === "student") {
+      const liveNotifications = await getNotificationsByUserIdDb(user.id)
+      setNotifications(liveNotifications)
+    }
+  }
+
   useEffect(() => {
     if (user && user.role === "student") {
-      const userNotifications = getNotificationsByUserId(user.id)
-      setNotifications(userNotifications)
+      refreshNotifications()
+      // Check for updates every 30 seconds
+      const interval = setInterval(refreshNotifications, 30000)
+      return () => clearInterval(interval)
     }
   }, [user])
 
-  // Don't render anything while checking auth
-  if (isLoading || !hasCheckedAuth || !user || user.role !== "student") {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
-      </div>
-    )
-  }
-
-  const isActive = (path: string) => {
-    return pathname === path
-  }
-
   const unreadCount = notifications.filter((n) => !n.isRead).length
 
-  const handleNotificationClick = (notification: Notification) => {
+  const handleNotificationClick = async (notification: Notification) => {
     if (!notification.isRead) {
-      markNotificationAsRead(notification.id)
-      // Refresh notifications
-      const updatedNotifications = getNotificationsByUserId(user.id)
-      setNotifications(updatedNotifications)
+      await markNotificationAsReadDb(notification.id)
+      refreshNotifications()
     }
-
     if (notification.actionUrl) {
       router.push(notification.actionUrl)
     }
     setIsNotificationOpen(false)
   }
 
-  const handleMarkAllAsRead = () => {
-    markAllNotificationsAsRead(user.id)
-    const updatedNotifications = getNotificationsByUserId(user.id)
-    setNotifications(updatedNotifications)
+  const handleMarkAllAsRead = async () => {
+    if (!user) return
+    await markAllNotificationsAsReadDb(user.id)
+    refreshNotifications()
   }
+
+  // --- UI Helpers ---
+  const isActive = (path: string) => pathname === path
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
-      case "success":
-        return <CheckCircle className="h-4 w-4 text-green-500" />
-      case "warning":
-        return <AlertCircle className="h-4 w-4 text-amber-500" />
-      case "announcement":
-        return <Calendar className="h-4 w-4 text-blue-500" />
-      default:
-        return <Info className="h-4 w-4 text-blue-500" />
+      case "success": return <CheckCircle className="h-4 w-4 text-emerald-500" />
+      case "warning": return <AlertCircle className="h-4 w-4 text-amber-500" />
+      case "announcement": return <Calendar className="h-4 w-4 text-blue-500" />
+      default: return <Info className="h-4 w-4 text-blue-500" />
     }
   }
 
@@ -132,326 +121,151 @@ export function StudentLayout({ children }: StudentLayoutProps) {
     const date = new Date(dateString)
     const now = new Date()
     const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60))
+    if (diffInHours < 1) return "Just now"
+    if (diffInHours < 24) return `${diffInHours}h ago`
+    return `${Math.floor(diffInHours / 24)}d ago`
+  }
 
-    if (diffInHours < 1) {
-      return "Just now"
-    } else if (diffInHours < 24) {
-      return `${diffInHours}h ago`
-    } else {
-      const diffInDays = Math.floor(diffInHours / 24)
-      return `${diffInDays}d ago`
-    }
+  if (isLoading || !hasCheckedAuth || !user || user.role !== "student") {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-white">
+        <div className="text-center">
+          <Loader2 className="h-10 w-10 animate-spin text-emerald-600 mx-auto" />
+          <p className="mt-4 text-slate-500 font-medium">Loading your portal...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b header-gradient text-primary-foreground shadow-md">
-        <div className="container flex h-16 items-center justify-between py-4">
-          <div className="flex items-center gap-2">
+    <div className="flex min-h-screen flex-col bg-slate-50/50">
+      {/* 🔥 HEADER ALIGNED WITH LANDING PAGE */}
+      <header className="sticky top-0 z-40 border-b bg-gradient-to-r from-green-600 via-emerald-600 to-green-700 text-white shadow-lg">
+        <div className="container mx-auto px-4 flex h-16 items-center justify-between">
+          
+          <div className="flex items-center gap-4">
             <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
-              <SheetTrigger asChild className="lg:hidden">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="lg:hidden transition-transform hover:rotate-180 duration-300"
-                >
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="lg:hidden text-white hover:bg-white/10">
                   <Menu className="h-6 w-6" />
-                  <span className="sr-only">Toggle menu</span>
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[240px] sm:w-[300px]">
-                <div className="flex h-full flex-col">
-                  <div className="flex items-center justify-between border-b px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <img
-                        src="/images/image.png"
-                        alt="City of Carmona Logo"
-                        className="h-8 w-8 rounded-full object-cover"
-                      />
-                      <span className="text-lg font-bold">BTS</span>
+              <SheetContent side="left" className="w-[280px] p-0">
+                <div className="p-6 border-b bg-emerald-50">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold">
+                      {user.name.charAt(0)}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className="transition-transform hover:rotate-90 duration-200"
-                    >
-                      <X className="h-5 w-5" />
-                      <span className="sr-only">Close</span>
-                    </Button>
-                  </div>
-
-                  <div className="flex-1 overflow-auto py-6">
-                    <div className="mb-6 px-4">
-                      <div className="flex items-center gap-2 rounded-md bg-white p-3 shadow-sm border border-gray-100">
-                        <div className="h-8 w-8 rounded-full bg-green-100 p-1.5">
-                          <User className="h-full w-full text-green-600" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{user.name}</p>
-                          <p className="text-xs text-muted-foreground">Student</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1 px-4">
-                      <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                        Main Navigation
-                      </p>
-                      <div className="flex flex-col gap-1">
-                        <Link
-                          href="/student/dashboard"
-                          className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                            isActive("/student/dashboard")
-                              ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                              : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                          }`}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                          <div
-                            className={`flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200 ${
-                              isActive("/student/dashboard")
-                                ? "bg-white/20 text-white"
-                                : "bg-gray-100 text-gray-500 group-hover:bg-green-100 group-hover:text-green-600"
-                            }`}
-                          >
-                            <Calendar className="h-4 w-4" />
-                          </div>
-                          <span>Dashboard</span>
-                        </Link>
-                        <Link
-                          href="/student/documents"
-                          className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                            isActive("/student/documents")
-                              ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                              : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                          }`}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                          <div
-                            className={`flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200 ${
-                              isActive("/student/documents")
-                                ? "bg-white/20 text-white"
-                                : "bg-gray-100 text-gray-500 group-hover:bg-green-100 group-hover:text-green-600"
-                            }`}
-                          >
-                            <FileText className="h-4 w-4" />
-                          </div>
-                          <span>Documents</span>
-                        </Link>
-                        <Link
-                          href="/student/qrcode"
-                          className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                            isActive("/student/qrcode")
-                              ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                              : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                          }`}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                          <div
-                            className={`flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200 ${
-                              isActive("/student/qrcode")
-                                ? "bg-white/20 text-white"
-                                : "bg-gray-100 text-gray-500 group-hover:bg-green-100 group-hover:text-green-600"
-                            }`}
-                          >
-                            <QrCode className="h-4 w-4" />
-                          </div>
-                          <span>QR Code</span>
-                        </Link>
-                        <Link
-                          href="/student/history"
-                          className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                            isActive("/student/history")
-                              ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                              : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                          }`}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                          <div
-                            className={`flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200 ${
-                              isActive("/student/history")
-                                ? "bg-white/20 text-white"
-                                : "bg-gray-100 text-gray-500 group-hover:bg-green-100 group-hover:text-green-600"
-                            }`}
-                          >
-                            <History className="h-4 w-4" />
-                          </div>
-                          <span>Application History</span>
-                        </Link>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1 px-4">
-                      <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Account</p>
-                      <div className="flex flex-col gap-1">
-                        <Link
-                          href="/student/profile"
-                          className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                            isActive("/student/profile")
-                              ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                              : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                          }`}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                          <div
-                            className={`flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200 ${
-                              isActive("/student/profile")
-                                ? "bg-white/20 text-white"
-                                : "bg-gray-100 text-gray-500 group-hover:bg-green-100 group-hover:text-green-600"
-                            }`}
-                          >
-                            <User className="h-4 w-4" />
-                          </div>
-                          <span>Profile</span>
-                        </Link>
-                        <Link
-                          href="/student/settings"
-                          className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                            isActive("/student/settings")
-                              ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                              : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                          }`}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                          <div
-                            className={`flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200 ${
-                              isActive("/student/settings")
-                                ? "bg-white/20 text-white"
-                                : "bg-gray-100 text-gray-500 group-hover:bg-green-100 group-hover:text-green-600"
-                            }`}
-                          >
-                            <Settings className="h-4 w-4" />
-                          </div>
-                          <span>Settings</span>
-                        </Link>
-                      </div>
+                    <div>
+                      <p className="font-bold text-slate-900">{user.name}</p>
+                      <p className="text-xs text-emerald-700 font-medium">Student Portal</p>
                     </div>
                   </div>
                 </div>
+                <nav className="p-4 space-y-2">
+                  <SidebarLink href="/student/dashboard" icon={Calendar} label="Dashboard" active={isActive("/student/dashboard")} />
+                  <SidebarLink href="/student/documents" icon={FileText} label="Documents" active={isActive("/student/documents")} />
+                  <SidebarLink href="/student/qrcode" icon={QrCode} label="QR Code" active={isActive("/student/qrcode")} />
+                  <SidebarLink href="/student/history" icon={History} label="History" active={isActive("/student/history")} />
+                </nav>
               </SheetContent>
             </Sheet>
-            <Link href="/student/dashboard" className="flex items-center gap-2 text-primary-foreground">
-              <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center shadow-inner">
-                <img src="/images/image.png" alt="City of Carmona Logo" className="h-6 w-6 rounded-full object-cover" />
-              </div>
-              <span className="text-lg font-bold">BTS</span>
+
+            <Link href="/student/dashboard" className="flex items-center gap-2">
+               <div className="h-8 w-8 rounded-full bg-white flex items-center justify-center">
+                  <CheckCircle className="h-5 w-5 text-emerald-600" />
+               </div>
+               <span className="text-xl font-bold tracking-tight">BTS Portal</span>
             </Link>
           </div>
-          <div className="hidden lg:flex lg:items-center lg:gap-6">
-            <nav className="flex items-center gap-4"></nav>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1 flex justify-center max-w-sm mx-6">
-              <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70 z-10" />
-                <Input
-                  placeholder="Search..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 w-full h-9 border-white/20 focus:border-white/40 focus:ring-white/20 bg-white/10 backdrop-blur-sm text-white placeholder:text-white/70"
-                />
-              </div>
+
+          <div className="flex items-center gap-3">
+            {/* Search - Integrated into Header */}
+            <div className="hidden md:flex relative w-64">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" />
+              <Input
+                placeholder="Search portal..."
+                className="bg-white/10 border-white/20 text-white placeholder:text-white/60 focus:bg-white/20 h-9 rounded-full pl-9"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
 
-            {/* Notifications Dropdown */}
+            {/* Notifications */}
             <DropdownMenu open={isNotificationOpen} onOpenChange={setIsNotificationOpen}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-primary-foreground relative">
+                <Button variant="ghost" size="icon" className="relative text-white hover:bg-white/10 rounded-full">
                   <Bell className="h-5 w-5" />
                   {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-xs text-white flex items-center justify-center animate-pulse">
-                      {unreadCount > 9 ? "9+" : unreadCount}
+                    <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-red-500 text-[10px] font-bold flex items-center justify-center border-2 border-emerald-600">
+                      {unreadCount}
                     </span>
                   )}
-                  <span className="sr-only">Notifications</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80 max-h-96 overflow-y-auto">
-                <DropdownMenuLabel className="flex items-center justify-between">
-                  <span>Notifications</span>
+              <DropdownMenuContent align="end" className="w-80 p-0 shadow-2xl border-slate-200">
+                <div className="p-4 border-b flex items-center justify-between bg-slate-50/50">
+                  <h3 className="font-bold text-slate-900">Notifications</h3>
                   {unreadCount > 0 && (
-                    <Button variant="ghost" size="sm" onClick={handleMarkAllAsRead} className="text-xs h-6 px-2">
+                    <Button variant="ghost" size="sm" onClick={handleMarkAllAsRead} className="text-xs h-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50">
                       Mark all read
                     </Button>
                   )}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-
-                {notifications.length === 0 ? (
-                  <div className="p-4 text-center text-sm text-muted-foreground">No notifications yet</div>
-                ) : (
-                  notifications.map((notification) => (
-                    <DropdownMenuItem
-                      key={notification.id}
-                      className={`p-3 cursor-pointer ${!notification.isRead ? "bg-blue-50" : ""}`}
-                      onClick={() => handleNotificationClick(notification)}
-                    >
-                      <div className="flex gap-3 w-full">
-                        <div className="flex-shrink-0 mt-1">{getNotificationIcon(notification.type)}</div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <p
-                              className={`text-sm font-medium ${!notification.isRead ? "text-gray-900" : "text-gray-600"}`}
-                            >
-                              {notification.title}
-                            </p>
-                            <span className="text-xs text-muted-foreground flex-shrink-0">
-                              {formatNotificationTime(notification.createdAt)}
-                            </span>
+                </div>
+                <div className="max-h-[400px] overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="p-8 text-center">
+                      <Bell className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-sm text-slate-500">All caught up!</p>
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div 
+                        key={n.id} 
+                        onClick={() => handleNotificationClick(n)}
+                        className={`p-4 border-b last:border-0 cursor-pointer hover:bg-slate-50 transition-colors flex gap-3 ${!n.isRead ? 'bg-emerald-50/30' : ''}`}
+                      >
+                        <div className="mt-1">{getNotificationIcon(n.type)}</div>
+                        <div className="flex-1">
+                          <div className="flex justify-between items-start gap-2">
+                            <p className={`text-sm leading-tight ${!n.isRead ? 'font-bold text-slate-900' : 'text-slate-600'}`}>{n.title}</p>
+                            <span className="text-[10px] text-slate-400 whitespace-nowrap">{formatNotificationTime(n.createdAt)}</span>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{notification.message}</p>
-                          {!notification.isRead && <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>}
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">{n.message}</p>
                         </div>
                       </div>
-                    </DropdownMenuItem>
-                  ))
-                )}
+                    ))
+                  )}
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {/* Profile */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1 text-primary-foreground transition-all duration-200 hover:bg-primary-foreground/10"
-                >
-                  <span className="hidden sm:inline-block">{user.name}</span>
-                  <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                <Button variant="ghost" className="text-white hover:bg-white/10 gap-2 pl-2 rounded-full">
+                  <div className="h-7 w-7 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold border border-white/30">
+                    {user.name.charAt(0)}
+                  </div>
+                  <span className="hidden sm:inline-block font-medium text-sm">{user.name.split(' ')[0]}</span>
+                  <ChevronDown className="h-4 w-4 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 shadow-lg border border-gray-200 rounded-lg p-1">
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{user.name}</p>
-                    <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
-                  </div>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>
+                  <p className="text-sm font-bold">{user.name}</p>
+                  <p className="text-xs text-slate-500 font-normal">{user.email}</p>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {/* Added Profile button */}
-                <DropdownMenuItem
-                  href="/student/profile"
-                  className="cursor-pointer hover:bg-green-50 transition-colors duration-200"
-                >
-                  <User className="mr-2 h-4 w-4" />
-                  Profile
+                <DropdownMenuItem onClick={() => router.push("/student/profile")}>
+                  <User className="mr-2 h-4 w-4" /> Profile
                 </DropdownMenuItem>
-                {/* Added Settings button */}
-                <DropdownMenuItem
-                  href="/student/settings"
-                  className="cursor-pointer hover:bg-green-50 transition-colors duration-200"
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
+                <DropdownMenuItem onClick={() => router.push("/student/settings")}>
+                  <Settings className="mr-2 h-4 w-4" /> Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setIsLogoutDialogOpen(true)}
-                  className="cursor-pointer text-red-600 hover:bg-red-50 transition-colors duration-200"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-red-600" onClick={() => setIsLogoutDialogOpen(true)}>
+                  <LogOut className="mr-2 h-4 w-4" /> Logout
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -459,153 +273,64 @@ export function StudentLayout({ children }: StudentLayoutProps) {
         </div>
       </header>
 
-      {/* Sidebar and Main Content */}
-      <div className="container flex-1 items-start md:grid md:grid-cols-[220px_minmax(0,1fr)] md:gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
-        {/* Sidebar */}
-        <aside className="fixed top-16 z-30 hidden h-[calc(100vh-4rem)] w-full shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50/50 md:sticky md:block">
-          <div className="py-6 pr-6">
-            <div className="mb-6 px-3">
-              <div className="flex items-center gap-2 rounded-md bg-white p-3 shadow-sm">
-                <div className="h-8 w-8 rounded-full bg-green-100 p-1.5">
-                  <User className="h-full w-full text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{user.name}</p>
-                  <p className="text-xs text-muted-foreground">Student</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-1 px-3">
-              <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Main Navigation</p>
-              <nav className="flex flex-col gap-1">
-                <Link
-                  href="/student/dashboard"
-                  className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                    isActive("/student/dashboard")
-                      ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                      : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                  }`}
-                >
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200">
-                    <Calendar className="h-4 w-4" />
-                  </div>
-                  <span>Dashboard</span>
-                </Link>
-                <Link
-                  href="/student/documents"
-                  className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                    isActive("/student/documents")
-                      ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                      : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                  }`}
-                >
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200">
-                    <FileText className="h-4 w-4" />
-                  </div>
-                  <span>Documents</span>
-                </Link>
-                <Link
-                  href="/student/qrcode"
-                  className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                    isActive("/student/qrcode")
-                      ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                      : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                  }`}
-                >
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200">
-                    <QrCode className="h-4 w-4" />
-                  </div>
-                  <span>QR Code</span>
-                </Link>
-                <Link
-                  href="/student/history"
-                  className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                    isActive("/student/history")
-                      ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                      : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                  }`}
-                >
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200">
-                    <History className="h-4 w-4" />
-                  </div>
-                  <span>Application History</span>
-                </Link>
+      <div className="container mx-auto px-4 flex-1 md:grid md:grid-cols-[240px_minmax(0,1fr)] md:gap-8">
+        {/* SIDEBAR */}
+        <aside className="hidden md:block py-8 border-r border-slate-200 pr-6">
+          <div className="space-y-6">
+            <div>
+              <p className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4">Main Menu</p>
+              <nav className="space-y-1">
+                <SidebarLink href="/student/dashboard" icon={Calendar} label="Dashboard" active={isActive("/student/dashboard")} />
+                <SidebarLink href="/student/documents" icon={FileText} label="Documents" active={isActive("/student/documents")} />
+                <SidebarLink href="/student/qrcode" icon={QrCode} label="Your QR Code" active={isActive("/student/qrcode")} />
+                <SidebarLink href="/student/history" icon={History} label="History" active={isActive("/student/history")} />
               </nav>
             </div>
-
-            {/* Added Account section with Profile and Settings links for sidebar */}
-            <div className="mt-6 space-y-1 px-3">
-              <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Account</p>
-              <nav className="flex flex-col gap-1">
-                <Link
-                  href="/student/profile"
-                  className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                    isActive("/student/profile")
-                      ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                      : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                  }`}
-                >
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200">
-                    <User className="h-4 w-4" />
-                  </div>
-                  <span>Profile</span>
-                </Link>
-                <Link
-                  href="/student/settings"
-                  className={`group flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ${
-                    isActive("/student/settings")
-                      ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md"
-                      : "hover:bg-white hover:text-green-600 hover:shadow-sm"
-                  }`}
-                >
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md transition-all duration-200">
-                    <Settings className="h-4 w-4" />
-                  </div>
-                  <span>Settings</span>
-                </Link>
-                <button
-                  onClick={() => setIsLogoutDialogOpen(true)}
-                  className="group flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 hover:bg-white hover:text-red-600 hover:shadow-sm"
-                >
-                  <div className="flex h-6 w-6 items-center justify-center rounded-md bg-gray-100 text-gray-500 transition-all duration-200 group-hover:bg-red-100 group-hover:text-red-600">
-                    <LogOut className="h-4 w-4" />
-                  </div>
-                  <span>Logout</span>
+            
+            <div className="pt-6 border-t">
+              <p className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4">Support</p>
+              <nav className="space-y-1">
+                <SidebarLink href="/student/settings" icon={Settings} label="Portal Settings" active={isActive("/student/settings")} />
+                <button onClick={() => setIsLogoutDialogOpen(true)} className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                  <LogOut className="h-4 w-4" /> Logout
                 </button>
               </nav>
             </div>
           </div>
         </aside>
 
-        {/* Main Content */}
-        <main className="w-full py-6 bg-dots">{children}</main>
+        <main className="py-8 min-w-0">{children}</main>
       </div>
 
-      {/* Logout Confirmation Dialog */}
       <AlertDialog open={isLogoutDialogOpen} onOpenChange={setIsLogoutDialogOpen}>
-        <AlertDialogContent className="border-2 border-gray-200 shadow-xl rounded-xl overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-red-400 to-red-600 w-full"></div>
-          <AlertDialogHeader className="pt-6">
-            <AlertDialogTitle className="text-xl">Are you sure you want to logout?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You will be logged out of your account and redirected to the login page.
-            </AlertDialogDescription>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to logout?</AlertDialogTitle>
+            <AlertDialogDescription>You will need to login again to access your scholarship portal.</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel className="shadow-sm hover:shadow transition-all duration-200">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                logout()
-                setIsLogoutDialogOpen(false)
-              }}
-              className="relative bg-gradient-to-b from-red-500 to-red-600 text-white font-medium py-2 px-4 rounded-md shadow-md transform transition-all duration-200 active:translate-y-0.5 active:shadow-sm hover:-translate-y-0.5 hover:shadow-lg border-b-2 border-red-700"
-            >
-              Logout
-            </AlertDialogAction>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={logout} className="bg-red-600 hover:bg-red-700">Logout</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+// Helper Component for Navigation
+function SidebarLink({ href, icon: Icon, label, active }: { href: string; icon: any; label: string; active: boolean }) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ${
+        active 
+          ? "bg-emerald-600 text-white shadow-md shadow-emerald-200" 
+          : "text-slate-600 hover:bg-white hover:text-emerald-700 hover:shadow-sm"
+      }`}
+    >
+      <Icon className={`h-4 w-4 ${active ? 'text-white' : 'text-slate-400'}`} />
+      {label}
+    </Link>
   )
 }
