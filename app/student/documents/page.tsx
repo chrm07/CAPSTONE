@@ -63,7 +63,6 @@ export default function DocumentsPage() {
   // --- SUBMISSION LOGIC ---
   const checkRequirementsMet = () => {
     const uploadedTypes = new Set(documentHistory.map(d => d.name))
-    // This checks if at least the 4 core requirements are present
     return REQUIRED_DOCS.every(req => uploadedTypes.has(req))
   }
 
@@ -137,6 +136,22 @@ export default function DocumentsPage() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  // 🔥 THE MISSING FUNCTION IS RESTORED HERE
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString)
+      return new Intl.DateTimeFormat("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+      }).format(date)
+    } catch (e) {
+      return "N/A"
+    }
   }
 
   return (

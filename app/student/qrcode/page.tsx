@@ -5,77 +5,75 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { StudentLayout } from "@/components/student-layout"
 import { useToast } from "@/components/ui/use-toast"
-import { Download, Share2, Smartphone, Shield, Info, AlertCircle, History } from "lucide-react"
+import { 
+  Download, Share2, Smartphone, Shield, Info, 
+  AlertCircle, History, Clock, QrCode as QrIcon, Loader2 
+} from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import Link from "next/link"
-import Image from "next/image"
+import QRCode from "react-qr-code"
+
+// IMPORT FIRESTORE LOGIC
+import { getStudentApplicationDb, type Application, type StudentProfile } from "@/lib/storage"
 
 export default function QRCodePage() {
   const { toast } = useToast()
-  const [activeTab, setActiveTab] = useState("view")
   const { user } = useAuth()
-  const [studentData, setStudentData] = useState({
-    id: "",
-    name: "",
-    course: "",
-    yearLevel: "",
-    school: "",
-  })
+  const [activeTab, setActiveTab] = useState("view")
+  
+  const [application, setApplication] = useState<Application | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  const profileData = (user?.profileData as StudentProfile) || {}
 
   useEffect(() => {
-    if (user) {
-      // Extract student data from user profile with better fallbacks
-      const profileData = user.profileData || {}
-      setStudentData({
-        id: user.id || profileData.studentId || "2022-12345",
-        name: profileData.fullName || user.name || "Juan Miguel Dela Cruz",
-        course: profileData.course || "Bachelor of Science in Computer Science",
-        yearLevel: profileData.yearLevel || "2nd Year",
-        school: profileData.schoolName || "University of the Philippines Diliman",
-      })
+    const fetchApp = async () => {
+      if (user) {
+        try {
+          const app = await getStudentApplicationDb(user.id)
+          setApplication(app)
+        } catch (error) {
+          console.error("Failed to fetch application", error)
+        } finally {
+          setIsLoading(false)
+        }
+      }
     }
+    fetchApp()
   }, [user])
 
-  // 🔥 NEW: Generate the exact payload for both viewing and downloading
-  const getQRCodeUrl = (size: number = 400) => {
-    if (!user) return ""
-    
-    const qrData = {
-      type: "BTS_SCHOLARSHIP",
-      id: user.id, // Official Firestore User ID
-      v: "1.0",
-    }
-
-    const qrValue = JSON.stringify(qrData)
-    const encodedValue = encodeURIComponent(qrValue)
-    return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodedValue}&ecc=H&margin=10&qzone=2`
-  }
-
+  // Native SVG to PNG downloader for high-quality, offline QR codes
   const handleDownloadQRCode = async () => {
-    try {
-      // Use the 1200x1200 size for high-quality downloads
-      const qrUrl = getQRCodeUrl(1200)
-
-      // Create a temporary link to download the QR code
-      const link = document.createElement("a")
-      link.href = qrUrl
-      link.download = `bts-scholarship-qrcode-${studentData.id}.png`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-
-      toast({
-        title: "QR Code downloaded",
-        description: "Your secure QR code has been downloaded successfully.",
-      })
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Download failed",
-        description: "Could not download QR code. Please try again.",
-      })
+    const svg = document.getElementById("QRCode")
+    if (svg) {
+      try {
+        const svgData = new XMLSerializer().serializeToString(svg)
+        const canvas = document.createElement("canvas")
+        const ctx = canvas.getContext("2d")
+        const img = new Image()
+        
+        img.onload = () => {
+          // Scale it up for a high-res download
+          canvas.width = img.width * 2
+          canvas.height = img.height * 2
+          ctx?.scale(2, 2)
+          ctx?.drawImage(img, 0, 0)
+          
+          const pngFile = canvas.toDataURL("image/png")
+          const downloadLink = document.createElement("a")
+          downloadLink.download = `BTS_QR_${application?.id || "Ticket"}.png`
+          downloadLink.href = `${pngFile}`
+          downloadLink.click()
+          
+          toast({ title: "Success", description: "QR Code downloaded to your device." })
+        }
+        img.src = "data:image/svg+xml;base64," + btoa(svgData)
+      } catch (err) {
+        toast({ variant: "destructive", title: "Download failed", description: "Could not generate image." })
+      }
     }
   }
 
@@ -84,109 +82,149 @@ export default function QRCodePage() {
       if (navigator.share) {
         await navigator.share({
           title: "My BTS Scholarship QR Code",
-          text: `Scholarship QR Code for ${studentData.name}`,
+          text: `Scholarship QR Code for ${profileData.fullName || user?.name}`,
           url: window.location.href,
         })
-
-        toast({
-          title: "QR Code shared",
-          description: "Your QR code has been shared successfully.",
-        })
+        toast({ title: "QR Code shared", description: "Your QR code has been shared successfully." })
       } else {
-        // Fallback: copy URL to clipboard
         await navigator.clipboard.writeText(window.location.href)
-        toast({
-          title: "Link copied",
-          description: "QR code page link copied to clipboard.",
-        })
+        toast({ title: "Link copied", description: "QR code page link copied to clipboard." })
       }
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Share failed",
-        description: "Failed to share QR code. Please try again.",
-      })
+      toast({ variant: "destructive", title: "Share failed", description: "Failed to share QR code." })
     }
   }
+
+  // The payload the scanner reads
+  const qrValue = application ? `BTS-APP-${application.id}` : ""
 
   return (
     <StudentLayout>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">QR Code</h1>
-          <p className="text-muted-foreground">View and manage your scholarship verification QR code</p>
+          <h1 className="text-3xl font-bold tracking-tight">Claiming Ticket</h1>
+          <p className="text-muted-foreground">View and manage your scholarship verification QR code.</p>
         </div>
       </div>
 
       <Tabs defaultValue="view" className="space-y-4" onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="view">View QR Code</TabsTrigger>
+        <TabsList className="bg-slate-100 p-1 border">
+          <TabsTrigger value="view">View Ticket</TabsTrigger>
           <TabsTrigger value="usage">How to Use</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
         </TabsList>
 
         <TabsContent value="view" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Your Scholarship QR Code</CardTitle>
+          <Card className="border-none shadow-md overflow-hidden max-w-2xl mx-auto">
+            <div className="h-2 bg-gradient-to-r from-emerald-500 to-emerald-700 w-full" />
+            <CardHeader className="text-center pb-2">
+              <CardTitle className="text-2xl">Official Claiming Pass</CardTitle>
               <CardDescription>
-                Use this QR code for scholarship verification and financial aid collection
+                Present this to the municipal staff on distribution day.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col items-center justify-center">
+            
+            <CardContent className="flex flex-col items-center justify-center pt-6 pb-8">
               
-              {/* 🔥 THE FIX: Display the real, dynamic QR code */}
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                {user ? (
-                  <img 
-                    src={getQRCodeUrl(400)} 
-                    alt={`QR Code for ${studentData.name}`}
-                    width={300}
-                    height={300}
-                    className="mx-auto rounded-md"
-                  />
-                ) : (
-                  <div className="w-[300px] h-[300px] flex items-center justify-center bg-gray-50 rounded-md">
-                    <p className="text-gray-400">Loading QR Code...</p>
+              {/* --- DYNAMIC QR CODE DISPLAY LOGIC --- */}
+              {isLoading ? (
+                <div className="h-[250px] flex flex-col items-center justify-center text-emerald-600">
+                  <Loader2 className="h-10 w-10 animate-spin mb-4" />
+                  <p className="text-sm font-medium">Verifying application status...</p>
+                </div>
+              ) : !application ? (
+                <div className="h-[250px] flex flex-col items-center justify-center text-slate-400">
+                  <AlertCircle className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                  <p className="text-sm">No application found. Please submit documents first.</p>
+                </div>
+              ) : application.status === "pending" ? (
+                <div className="text-center">
+                  <div className="h-[250px] w-[250px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 mx-auto mb-6 relative overflow-hidden">
+                    <QrIcon className="h-16 w-16 mb-2 opacity-30 blur-sm" />
+                    <div className="absolute inset-0 bg-white/40 backdrop-blur-[3px] flex items-center justify-center">
+                       <div className="bg-white p-4 rounded-full shadow-lg">
+                         <Clock className="h-8 w-8 text-amber-500 animate-pulse" />
+                       </div>
+                    </div>
                   </div>
-                )}
-              </div>
-
-              <div className="mt-6 text-center space-y-1">
-                <p className="font-semibold text-lg">{studentData.name}</p>
-                <p className="text-sm text-muted-foreground">Student ID: {studentData.id}</p>
-                <p className="text-sm text-muted-foreground font-medium">{studentData.course}</p>
-                <p className="text-sm text-muted-foreground">
-                  {studentData.yearLevel}, {studentData.school}
-                </p>
-              </div>
+                  <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 mb-3 text-sm px-3 py-1">UNDER REVIEW</Badge>
+                  <p className="text-sm text-slate-500 max-w-[250px] mx-auto">Your QR code will unlock automatically once your documents are approved.</p>
+                </div>
+              ) : application.status === "rejected" ? (
+                <div className="text-center">
+                  <div className="h-[250px] w-[250px] bg-red-50 border-2 border-dashed border-red-200 rounded-xl flex flex-col items-center justify-center text-red-400 mx-auto mb-6">
+                    <AlertCircle className="h-16 w-16 mb-2" />
+                    <p className="font-medium text-red-700">Action Required</p>
+                  </div>
+                  <Badge variant="destructive" className="mb-3 text-sm px-3 py-1">APPLICATION REJECTED</Badge>
+                  <p className="text-sm text-slate-500 max-w-[250px] mx-auto">Please check your documents tab for feedback and resubmit.</p>
+                </div>
+              ) : (
+                // ✅ APPROVED: SHOW NATIVE REACT QR CODE
+                <div className="text-center w-full animate-fade-in">
+                  <div className={`p-5 bg-white rounded-2xl shadow-sm border-2 border-slate-100 inline-block mb-6 relative ${application.isClaimed ? 'opacity-50 grayscale' : ''}`}>
+                    <QRCode
+                      id="QRCode"
+                      value={qrValue}
+                      size={220}
+                      level="H"
+                    />
+                    {application.isClaimed && (
+                       <div className="absolute inset-0 flex items-center justify-center z-10">
+                          <div className="bg-slate-900/90 text-white font-bold text-2xl px-6 py-2 rounded-xl backdrop-blur-md transform -rotate-12 border-2 border-slate-400 shadow-2xl">
+                             CLAIMED
+                          </div>
+                       </div>
+                    )}
+                  </div>
+                  
+                  <div className="mt-2 text-center space-y-1">
+                    <p className="font-bold text-xl text-slate-900">{profileData.fullName || user?.name}</p>
+                    <p className="font-mono text-sm font-bold text-emerald-700 bg-emerald-50 py-1 px-3 rounded-md inline-block my-2">
+                      ID: {application.id}
+                    </p>
+                    <p className="text-sm text-slate-500">{profileData.course || "N/A"}</p>
+                    <p className="text-sm text-slate-500">
+                      {profileData.yearLevel || "N/A"} • {profileData.schoolName || "N/A"}
+                    </p>
+                  </div>
+                </div>
+              )}
             </CardContent>
-            <CardFooter className="flex justify-center gap-4">
-              <Button onClick={handleDownloadQRCode} className="bg-green-600 hover:bg-green-700 text-white">
-                <Download className="mr-2 h-4 w-4" />
-                Download QR Code
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleShareQRCode}
-                className="border-green-600 text-green-600 hover:bg-green-50 bg-transparent"
-              >
-                <Share2 className="mr-2 h-4 w-4" />
-                Share QR Code
-              </Button>
-            </CardFooter>
+            
+            {/* Action Buttons only show if approved */}
+            {application?.status === "approved" && (
+              <CardFooter className="flex flex-col sm:flex-row justify-center gap-3 border-t bg-slate-50 pt-6">
+                <Button 
+                  onClick={handleDownloadQRCode} 
+                  className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={application.isClaimed}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Save to Gallery
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleShareQRCode}
+                  className="w-full sm:w-auto border-emerald-600 text-emerald-600 hover:bg-emerald-50 bg-white"
+                >
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share Ticket
+                </Button>
+              </CardFooter>
+            )}
           </Card>
 
-          <Alert>
-            <Info className="h-4 w-4" />
-            <AlertTitle>Important</AlertTitle>
-            <AlertDescription>
-              Present this QR code to the scholarship office when collecting your financial aid. Make sure to bring a
-              valid ID for verification.
+          <Alert className="max-w-2xl mx-auto border-blue-200 bg-blue-50">
+            <Info className="h-4 w-4 text-blue-600" />
+            <AlertTitle className="text-blue-900 font-semibold">Important Reminder</AlertTitle>
+            <AlertDescription className="text-blue-800">
+              Present this QR code to the municipal staff when collecting your financial aid. Make sure to bring a valid School or Government ID for physical verification.
             </AlertDescription>
           </Alert>
         </TabsContent>
 
+        {/* --- USAGE TAB (UNCHANGED) --- */}
         <TabsContent value="usage" className="space-y-4">
           <Card>
             <CardHeader>
@@ -198,116 +236,64 @@ export default function QRCodePage() {
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <h3 className="text-lg font-medium flex items-center">
-                  <Smartphone className="mr-2 h-5 w-5" />
+                  <Smartphone className="mr-2 h-5 w-5 text-emerald-600" />
                   Digital Verification
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Your QR code contains encrypted information about your scholarship status. When scanned by authorized
-                  personnel, it verifies your identity and eligibility for financial aid.
+                  Your QR code contains an encrypted unique identifier linked directly to your approved application in our secure database.
                 </p>
-                <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground pl-5">
-                  <li>Save the QR code to your phone or print it out</li>
-                  <li>Present the QR code to the scholarship office staff</li>
-                  <li>They will scan your code using the official verification app</li>
-                  <li>Once verified, you can proceed with financial aid collection</li>
+                <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground pl-5 mt-3">
+                  <li>Save the QR code to your phone gallery before arriving at the venue.</li>
+                  <li>Present the QR code (screen brightness up) to the Scanner Staff.</li>
+                  <li>Staff will scan your code using the official municipal tablet.</li>
+                  <li>Once the system says "Verified", you will receive your financial assistance.</li>
                 </ol>
               </div>
 
               <div className="space-y-2">
                 <h3 className="text-lg font-medium flex items-center">
-                  <Shield className="mr-2 h-5 w-5" />
+                  <Shield className="mr-2 h-5 w-5 text-emerald-600" />
                   Identity Verification
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  For security purposes, you will still need to present a valid ID along with your QR code. This ensures
-                  that only you can access your scholarship benefits.
+                  For security purposes, you will still need to present a physical valid ID along with your QR code to prove ownership.
                 </p>
-                <div className="bg-muted p-4 rounded-md text-sm">
-                  <p className="font-medium">Acceptable IDs:</p>
-                  <ul className="list-disc list-inside space-y-1 text-muted-foreground pl-5">
-                    <li>School ID</li>
-                    <li>Government-issued ID (e.g., National ID, Driver's License)</li>
-                    <li>Passport</li>
-                    <li>Voter's ID</li>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mt-3">
+                  <p className="font-semibold text-slate-800 mb-2">Acceptable IDs:</p>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-slate-600 pl-2">
+                    <li>Valid School ID for the current semester</li>
+                    <li>Government-issued ID (e.g., National ID, Driver's License, Passport)</li>
+                    <li>Barangay Certification of Identity with photo</li>
                   </ul>
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-lg font-medium flex items-center">
-                  <Info className="mr-2 h-5 w-5" />
-                  When to Use Your QR Code
-                </h3>
-                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground pl-5">
-                  <li>During financial aid disbursement events</li>
-                  <li>When claiming your scholarship check or allowance</li>
-                  <li>For verification during scholarship-related activities</li>
-                  <li>When accessing special scholarship privileges or services</li>
-                </ul>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* --- SECURITY TAB (UNCHANGED) --- */}
         <TabsContent value="security" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>QR Code Security</CardTitle>
-              <CardDescription>Important information about keeping your QR code secure</CardDescription>
+              <CardDescription>Important information about keeping your claiming ticket secure.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Security Warning</AlertTitle>
-                <AlertDescription>
-                  Never share your QR code with unauthorized individuals. Your QR code is linked to your scholarship
-                  account and could be misused if it falls into the wrong hands.
+              <Alert variant="destructive" className="bg-red-50 border-red-200">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertTitle className="text-red-900 font-bold">Security Warning</AlertTitle>
+                <AlertDescription className="text-red-800">
+                  Never post your QR code on Facebook, Instagram, or any public platform. If someone else scans your code, they may claim your financial aid. The system will mark it as "CLAIMED" and you will not be able to get a replacement.
                 </AlertDescription>
               </Alert>
 
               <div className="space-y-2">
-                <h3 className="text-lg font-medium">Security Features</h3>
-                <p className="text-sm text-muted-foreground">
-                  Your QR code includes several security features to prevent unauthorized use:
-                </p>
-                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground pl-5">
-                  <li>Encrypted student information</li>
-                  <li>Timestamp to prevent replay attacks</li>
-                  <li>Can only be verified by official scholarship verification app</li>
-                  <li>Requires additional ID verification</li>
+                <h3 className="text-lg font-medium">System Protections</h3>
+                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground pl-2">
+                  <li>Can only be verified by logged-in official Scanner Staff.</li>
+                  <li>Automatically locks and greys out immediately after being scanned once.</li>
+                  <li>QR payloads are randomly generated Document IDs, not predictable numbers.</li>
                 </ul>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-lg font-medium">Best Practices</h3>
-                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground pl-5">
-                  <li>Do not post your QR code on social media or public platforms</li>
-                  <li>Only present your QR code to authorized scholarship personnel</li>
-                  <li>Report immediately if you suspect your QR code has been compromised</li>
-                  <li>Keep your student account credentials secure</li>
-                  <li>Regularly check your scholarship account for any unauthorized activities</li>
-                </ul>
-              </div>
-
-              <div className="bg-muted p-4 rounded-md">
-                <p className="font-medium">Lost or Compromised QR Code?</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  If you believe your QR code has been compromised or if you've lost access to it, please contact the
-                  scholarship office immediately to have your QR code reset.
-                </p>
-                <Button
-                  variant="outline"
-                  className="mt-2 bg-transparent"
-                  onClick={() => {
-                    toast({
-                      title: "Request submitted",
-                      description:
-                        "Your request to reset your QR code has been submitted. Please check your email for further instructions.",
-                    })
-                  }}
-                >
-                  Request QR Code Reset
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -315,20 +301,20 @@ export default function QRCodePage() {
       </Tabs>
 
       <div className="mt-8 pt-6 border-t border-gray-200">
-        <Card className="bg-gradient-to-r from-green-50 to-white border-green-100">
+        <Card className="bg-gradient-to-r from-emerald-50 to-white border-emerald-100">
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-green-500 to-green-600">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4 text-center sm:text-left">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600">
                   <History className="h-6 w-6 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Application History</h3>
-                  <p className="text-sm text-gray-600">View your completed scholarship applications and outcomes</p>
+                  <h3 className="text-lg font-semibold text-slate-900">Application History</h3>
+                  <p className="text-sm text-slate-600">View past semesters and claiming dates.</p>
                 </div>
               </div>
-              <Link href="/student/history">
-                <Button className="bg-green-600 hover:bg-green-700 text-white">View History</Button>
+              <Link href="/student/history" className="w-full sm:w-auto">
+                <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">View History</Button>
               </Link>
             </div>
           </CardContent>
