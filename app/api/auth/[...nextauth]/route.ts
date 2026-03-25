@@ -28,7 +28,8 @@ export const authOptions: AuthOptions = {
               name: user.name,
               email: user.email,
               role: user.role, 
-            }
+              adminRole: user.adminRole, // 🔥 FIX 1: Grab the adminRole from Firestore
+            } as any // Bypass strict NextAuth types
           }
           
           // Passwords didn't match or user wasn't found
@@ -49,10 +50,11 @@ export const authOptions: AuthOptions = {
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   callbacks: {
-    // Append custom data (like ID and Role) to the JWT token
+    // Append custom data to the JWT token
     async jwt({ token, user }) {
       if (user) {
         token.role = (user as any).role
+        token.adminRole = (user as any).adminRole // 🔥 FIX 2: Save it to the secure token
         token.id = user.id
       }
       return token
@@ -61,6 +63,7 @@ export const authOptions: AuthOptions = {
     async session({ session, token }) {
       if (token && session.user) {
         (session.user as any).role = token.role;
+        (session.user as any).adminRole = token.adminRole; // 🔥 FIX 3: Push it to the frontend!
         (session.user as any).id = token.id;
       }
       return session

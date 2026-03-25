@@ -21,14 +21,16 @@ export default function AdminDashboard() {
 
   // 🔥 THE BOUNCER: Security Check & Redirection
   useEffect(() => {
-    // Wait until the user object is fully loaded
     if (user) {
       if (user.role === "admin") {
-        if (user.adminRole === "scanner_staff") {
-          router.replace("/admin/verification")
-        } else if (user.adminRole === "verifier_staff") {
-          router.replace("/admin/applications")
-        } else if (user.adminRole === "head_admin") {
+        // 🔥 THE FIX: If adminRole is missing (legacy account), default to "head_admin"
+        const currentAdminRole = user.adminRole || "head_admin"
+
+        if (currentAdminRole === "scanner_staff") {
+          router.replace("/admin/scanner-dashboard")
+        } else if (currentAdminRole === "verifier_staff") {
+          router.replace("/admin/verifier-dashboard")
+        } else {
           // If they are a Head Admin, allow them to stay and fetch the data
           fetchDashboardData()
         }
@@ -72,8 +74,10 @@ export default function AdminDashboard() {
     }
   }
 
-  // 🔥 SECURITY WALL: Show a loading screen until we confirm they are a Head Admin
-  if (isLoading || !user || user.adminRole !== "head_admin") {
+  // 🔥 SECURITY WALL FIX: Also apply the fallback here
+  const currentAdminRole = user?.adminRole || "head_admin"
+
+  if (isLoading || !user || currentAdminRole !== "head_admin") {
     return (
       <AdminLayout>
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4 text-emerald-600">
