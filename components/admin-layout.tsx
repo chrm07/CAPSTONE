@@ -79,6 +79,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const [isSearchFocused, setIsSearchFocused] = useState(false)
   
   const [notifications, setNotifications] = useState<any[]>([])
+  const [pendingAppsCount, setPendingAppsCount] = useState(0)
 
   useEffect(() => {
     if (!isLoading && !hasCheckedAuth) {
@@ -91,6 +92,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
   }, [user, isLoading, hasCheckedAuth, router])
 
+  // Listen for admin bell notifications
   useEffect(() => {
     if (!user || user.role !== "admin") return
     
@@ -115,6 +117,27 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         }
       }, 10)
     }
+  }, [user])
+
+  // Listen exclusively for active, pending applications to update the nav badge
+  useEffect(() => {
+    if (!user || user.role !== "admin") return
+    if (user.adminRole === "scanner_staff" || user.adminRole === "verifier_staff") return
+
+    const qApps = query(collection(db, "applications"), where("isSubmitted", "==", true))
+    const unsubscribeApps = onSnapshot(qApps, (snapshot) => {
+      let count = 0
+      snapshot.forEach((doc) => {
+        const data = doc.data()
+        // Only count if it's strictly pending (not archived, approved, or rejected)
+        if (!data.isArchived && !data.isApproved && !data.isRejected && (data.status === "pending" || !data.status)) {
+          count++
+        }
+      })
+      setPendingAppsCount(count)
+    })
+
+    return () => unsubscribeApps()
   }, [user])
 
   const unreadCount = notifications.filter((n) => !n.read && !n.isRead).length
@@ -299,13 +322,22 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                         <Link
                           key={item.href}
                           href={item.href}
-                          className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition-all ${
+                          className={`group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-bold transition-all ${
                             isActive(item.href) ? "bg-emerald-600 text-white shadow-md" : "text-slate-600 hover:bg-slate-100"
                           }`}
                           onClick={() => setIsMobileMenuOpen(false)}
                         >
-                          <item.icon className="h-5 w-5" />
-                          {item.label}
+                          <div className="flex items-center gap-3">
+                            <item.icon className="h-5 w-5" />
+                            {item.label}
+                          </div>
+                          {item.label === "Applications" && pendingAppsCount > 0 && (
+                            <span className={`flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-black shadow-sm ${
+                              isActive(item.href) ? 'bg-white text-emerald-600' : 'bg-red-500 text-white'
+                            }`}>
+                              {pendingAppsCount > 9 ? "9+" : pendingAppsCount}
+                            </span>
+                          )}
                         </Link>
                       ))}
                     </div>
@@ -492,14 +524,23 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-bold transition-all ${
+                    className={`group flex items-center justify-between rounded-xl px-3 py-2.5 text-[13px] font-bold transition-all ${
                       isActive(item.href) 
                         ? "bg-emerald-600 text-white shadow-lg shadow-emerald-200" 
                         : "text-slate-500 hover:bg-slate-50 hover:text-emerald-700"
                     }`}
                   >
-                    <item.icon className="h-5 w-5" />
-                    {item.label}
+                    <div className="flex items-center gap-3">
+                      <item.icon className="h-5 w-5" />
+                      {item.label}
+                    </div>
+                    {item.label === "Applications" && pendingAppsCount > 0 && (
+                      <span className={`flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-black shadow-sm ${
+                        isActive(item.href) ? 'bg-white text-emerald-600' : 'bg-red-500 text-white'
+                      }`}>
+                        {pendingAppsCount > 9 ? "9+" : pendingAppsCount}
+                      </span>
+                    )}
                   </Link>
                 ))}
               </div>
