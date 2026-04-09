@@ -13,16 +13,20 @@ import { db } from "@/lib/firebase"
 import { 
   School, CheckCircle, FileText, ArrowRight, 
   CalendarDays, UploadCloud, Loader2, Banknote, 
-  Clock, XCircle, Facebook, Activity, Calendar, AlertCircle
+  Clock, XCircle, Facebook, Activity, Calendar, AlertCircle, Info
 } from "lucide-react"
 
-function getTimelineSteps(application: any, hasFinancialSchedule: boolean) {
+function getTimelineSteps(application: any, schedule: any) {
   const formatDate = (dateString?: string) => dateString ? new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : "";
 
   const hasApp = application?.isSubmitted;
   const isApproved = application?.isApproved;
-  const isRejected = application?.status === 'rejected'; // 🔥 Use status for rejected check
+  const isRejected = application?.status === 'rejected'; 
   const isClaimed = application?.isClaimed;
+
+  const hasFinancialSchedule = schedule?.distributionOpen;
+  const isExtension = schedule?.distributionType === "extension";
+  const distributionEnded = !schedule?.distributionOpen && schedule?.distributionStart;
 
   return [
     { 
@@ -48,9 +52,13 @@ function getTimelineSteps(application: any, hasFinancialSchedule: boolean) {
     },
     { 
       id: "announcement", 
-      title: "Financial Assistance Schedule",
+      title: isExtension ? "Distribution Extended" : (distributionEnded && isApproved && !isClaimed ? "Distribution Ended" : "Financial Assistance Schedule"),
       description: hasFinancialSchedule ? (
-        "Your schedule is ready! Please check your QR Ticket for the exact claiming date and venue."
+        isExtension 
+          ? "The distribution period has been extended. Please claim your assistance at the Municipal Treasury." 
+          : "Your schedule is ready! Please check your QR Ticket for the exact claiming date and venue."
+      ) : (distributionEnded && isApproved && !isClaimed) ? (
+        "The distribution has ended. Please wait for the extension to be announced."
       ) : (
         <div className="flex flex-col gap-2">
           <span>Wait for the official financial release schedule.</span>
@@ -81,6 +89,7 @@ export default function StudentDashboard() {
   
   const [docProgress, setDocProgress] = useState({ uploadedCount: 0, totalRequired: 9 })
   const [currentApp, setCurrentApp] = useState<any>(null)
+  const [pastApp, setPastApp] = useState<any>(null)
   
   const [schedule, setSchedule] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -112,6 +121,14 @@ export default function StudentDashboard() {
       const active = docs.filter(d => !(d as any).isArchived)
       const uploadedNames = new Set(active.map((d: any) => d.categoryName || d.name))
       setDocProgress({ uploadedCount: uploadedNames.size, totalRequired: 9 })
+    }))
+
+    // 4. Listen to History (Previous Cycle Details)
+    const qHistory = query(collection(db, "history"), where("studentId", "==", user.id))
+    unsubs.push(onSnapshot(qHistory, (snapshot) => {
+      const histories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      histories.sort((a: any, b: any) => new Date(b.archivedAt || 0).getTime() - new Date(a.archivedAt || 0).getTime())
+      setPastApp(histories[0] || null)
     }))
 
     return () => {
@@ -150,7 +167,7 @@ export default function StudentDashboard() {
   const isApproved = currentApp?.isApproved;
   const isRejected = currentApp?.status === 'rejected';
 
-  // 🔥 DYNAMIC STATUS LOGIC (Including Rejected)
+  // 🔥 DYNAMIC STATUS LOGIC (Including Extension & Ended Distribution)
   let messageData = { 
     color: "slate", icon: CalendarDays, 
     title: "Submissions Closed", 
@@ -166,21 +183,40 @@ export default function StudentDashboard() {
       actionText: "View History", actionLink: "/student/history"
     };
   } else if (schedule?.distributionOpen && isApproved) {
-    messageData = { 
-      color: "amber", icon: Calendar, 
-      title: "Ready for Claiming", 
-      text: "You can now claim your financial assistance. Please check the Claiming Ticket tab.",
-      actionText: "View QR Pass", actionLink: "/student/qrcode"
-    };
+    if (schedule?.distributionType === "extension") {
+      messageData = { 
+        color: "purple", icon: Banknote, 
+        title: "Distribution Extended", 
+        text: "The Distribution is Extended. Please Claim in the Treasury.",
+        actionText: "View QR Pass", actionLink: "/student/qrcode"
+      };
+    } else {
+      messageData = { 
+        color: "amber", icon: Calendar, 
+        title: "Ready for Claiming", 
+        text: "You can now claim your financial assistance. Please check the Claiming Ticket tab.",
+        actionText: "View QR Pass", actionLink: "/student/qrcode"
+      };
+    }
   } else if (isApproved && !schedule?.distributionOpen) {
-    messageData = { 
-      color: "blue", icon: Banknote, 
-      title: "Application Approved", 
-      text: "Wait for financial schedules.",
-      actionText: "View Documents", actionLink: "/student/documents"
-    };
+    if (schedule?.distributionStart) {
+      // If it had a start date but is now closed, the distribution ended.
+      messageData = { 
+        color: "amber", icon: Clock, 
+        title: "Distribution Ended", 
+        text: "The distribution has ended. Please wait for the extension to be announced.",
+        actionText: "View QR Pass", actionLink: "/student/qrcode"
+      };
+    } else {
+      // It has never been scheduled yet for this cycle
+      messageData = { 
+        color: "blue", icon: Banknote, 
+        title: "Application Approved", 
+        text: "Wait for financial schedules.",
+        actionText: "View Documents", actionLink: "/student/documents"
+      };
+    }
   } else if (isRejected) {
-    // 🔥 NEW: Rejected Status overrides pending/submission open
     messageData = { 
       color: "red", icon: AlertCircle, 
       title: "Application Rejected", 
@@ -200,17 +236,59 @@ export default function StudentDashboard() {
     <StudentLayout>
       <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-12">
         
-        {/* Welcome Header */}
-        <div className="relative overflow-hidden rounded-3xl bg-white border border-slate-200 shadow-sm p-8">
+        {/* UNIFIED WELCOME & ALERTS CARD */}
+        <div className="relative overflow-hidden rounded-3xl bg-white border border-slate-200 shadow-sm animate-in slide-in-from-top-4">
           <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-400 rounded-full filter blur-[80px] opacity-10 -mr-20 -mt-20 pointer-events-none"></div>
-          <div className="relative flex flex-col md:flex-row md:items-center gap-6">
-            <div className="h-20 w-20 rounded-full bg-emerald-100 flex items-center justify-center font-black text-emerald-700 text-3xl shrink-0 overflow-hidden border-2 border-emerald-200 shadow-inner">
-               {profilePicUrl ? <img src={profilePicUrl} alt={studentData.name} className="h-full w-full object-cover" /> : initial}
+          
+          <div className="relative p-6 md:p-8 flex flex-col gap-6">
+            {/* 1. Welcome Section */}
+            <div className="flex flex-col md:flex-row md:items-center gap-6">
+              <div className="h-20 w-20 rounded-full bg-emerald-100 flex items-center justify-center font-black text-emerald-700 text-3xl shrink-0 overflow-hidden border-2 border-emerald-200 shadow-inner">
+                 {profilePicUrl ? <img src={profilePicUrl} alt={studentData.name} className="h-full w-full object-cover" /> : initial}
+              </div>
+              <div>
+                <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase">Welcome, {studentData.name.split(' ')[0]}!</h1>
+                <p className="text-slate-500 font-medium mt-1">Here is the current status of your scholarship application.</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase">Welcome, {studentData.name.split(' ')[0]}!</h1>
-              <p className="text-slate-500 font-medium mt-1">Here is the current status of your scholarship application.</p>
-            </div>
+
+            {/* 2. History Remarks (Only shows if there's a past app but no active app) */}
+            {!currentApp && pastApp && (
+              <>
+                <hr className="border-slate-100" />
+                
+                {/* Cycle Ended Alert */}
+                <div className="flex items-start gap-4">
+                  <div className="bg-blue-50 border border-blue-100 p-3 rounded-2xl shrink-0">
+                    <Info className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <div className="pt-1">
+                    <h3 className="font-black text-slate-800 uppercase tracking-tight text-lg">Scholarship Cycle Ended</h3>
+                    <p className="text-slate-600 font-medium mt-1 text-sm md:text-base leading-snug">
+                      Please update your information and academic information in the Profiles tab to match your documents/requirements to avoid conflicts.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Unclaimed Assistance Alert (Only if approved but not claimed) */}
+                {pastApp.isApproved && !pastApp.isClaimed && (
+                  <>
+                    <hr className="border-slate-100" />
+                    <div className="flex items-start gap-4">
+                      <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl shrink-0">
+                        <AlertCircle className="h-6 w-6 text-amber-600" />
+                      </div>
+                      <div className="pt-1">
+                        <h3 className="font-black text-slate-800 uppercase tracking-tight text-lg">Unclaimed Assistance</h3>
+                        <p className="text-slate-600 font-medium mt-1 text-sm md:text-base leading-snug">
+                          Failed to receive assistance during the given time period.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
           </div>
         </div>
 
@@ -236,7 +314,7 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* REJECTION FEEDBACK ALERT (Rendered only if rejected) */}
+        {/* REJECTION FEEDBACK ALERT */}
         {isRejected && currentApp?.feedback && (
           <div className="bg-red-50 border border-red-200 rounded-3xl p-6 shadow-sm animate-in slide-in-from-top-4">
             <div className="flex items-start gap-4">
@@ -276,7 +354,6 @@ export default function StudentDashboard() {
                     <span className={`text-center text-[9px] uppercase font-black tracking-widest ${(!isSubmitted && !isRejected) ? 'text-amber-600' : 'text-emerald-600'}`}>Draft</span>
                   </div>
                   <div className="flex flex-col items-center gap-2 z-10 w-16">
-                    {/* Shows Red Pulse if Rejected, Green Check if Approved, Amber Pulse if Pending */}
                     <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-black shadow-sm ${
                       isRejected ? 'bg-red-500 text-white ring-4 ring-red-100 animate-pulse' :
                       (isSubmitted && !isApproved) ? 'bg-amber-400 text-white ring-4 ring-amber-100 animate-pulse' : 
@@ -388,11 +465,11 @@ export default function StudentDashboard() {
           </CardHeader>
           <CardContent className="pt-8 px-8 pb-4">
             <div className="relative pl-6 border-l-2 border-slate-200 ml-3">
-              {getTimelineSteps(currentApp, schedule?.distributionOpen).map((step) => (
+              {getTimelineSteps(currentApp, schedule).map((step) => (
                 <div key={step.id} className={`mb-10 relative animate-fade-in ${step.state === "pending" ? "opacity-50 grayscale" : ""}`}>
                   <div className={`absolute -left-[35px] h-8 w-8 rounded-full flex items-center justify-center shadow-md border-4 border-white ${
                     step.state === "completed" ? "bg-emerald-500" : 
-                    step.state === "current" ? "bg-amber-400 animate-pulse" : 
+                    step.state === "current" ? (step.title === "Distribution Extended" ? "bg-purple-500 animate-pulse" : "bg-amber-400 animate-pulse") : 
                     step.state === "error" ? "bg-red-500" : "bg-slate-300"
                   }`}>
                     {step.state === "completed" ? <CheckCircle className="h-4 w-4 text-white" /> : 
@@ -401,13 +478,13 @@ export default function StudentDashboard() {
                   </div>
                   <div className="pb-1 pt-1">
                     <h3 className={`text-base font-black uppercase tracking-tight ${
-                        step.state === "current" ? "text-amber-600" : 
+                        step.state === "current" ? (step.title === "Distribution Extended" ? "text-purple-600" : "text-amber-600") : 
                         step.state === "error" ? "text-red-600" : "text-slate-800"
                     }`}>{step.title}</h3>
                     <p className="text-xs text-slate-500 font-bold tracking-widest uppercase mt-0.5">{step.date || "Pending"}</p>
                   </div>
                   <div className={`text-sm p-4 rounded-2xl border mt-3 font-medium ${
-                      step.state === "current" ? "bg-amber-50 border-amber-100 text-amber-800 shadow-sm" : 
+                      step.state === "current" ? (step.title === "Distribution Extended" ? "bg-purple-50 border-purple-100 text-purple-800 shadow-sm" : "bg-amber-50 border-amber-100 text-amber-800 shadow-sm") : 
                       step.state === "error" ? "bg-red-50 border-red-100 text-red-800 shadow-sm" :
                       "bg-slate-50 border-slate-100 text-slate-600"
                   }`}>{step.description}</div>

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/contexts/auth-context"
 import QRCode from "react-qr-code"
-import { QrCode as QrIcon, AlertCircle, Loader2, Lock, CheckCircle, CalendarDays, Info, Shield, Smartphone, Download } from "lucide-react"
+import { QrCode as QrIcon, AlertCircle, Loader2, Lock, CheckCircle, CalendarDays, Info, Shield, Smartphone, Download, Clock } from "lucide-react"
 import { collection, query, where, onSnapshot, doc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -92,6 +92,7 @@ export default function StudentQRCodePage() {
   const isApproved = application?.status === 'approved'
   const isClaimed = application?.isClaimed
   const distributionOpen = schedule?.distributionOpen
+  const distributionEnded = !schedule?.distributionOpen && schedule?.distributionStart
 
   return (
     <StudentLayout>
@@ -146,20 +147,28 @@ export default function StudentQRCodePage() {
                 </div>
               ) 
               
-              /* SCENARIO 2: DISTRIBUTION CLOSED */
+              /* SCENARIO 2: DISTRIBUTION CLOSED (ENDED OR NEVER STARTED) */
               : !distributionOpen ? (
                 <div className="text-center max-w-sm space-y-4 animate-in zoom-in-95">
                   <div className="h-24 w-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <CalendarDays className="h-10 w-10 text-slate-400" />
+                    {distributionEnded ? (
+                      <Clock className="h-10 w-10 text-slate-400" />
+                    ) : (
+                      <CalendarDays className="h-10 w-10 text-slate-400" />
+                    )}
                   </div>
-                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Distribution Closed</h2>
+                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">
+                    {distributionEnded ? "Distribution Ended" : "Distribution Closed"}
+                  </h2>
                   <p className="text-slate-500 font-medium">
-                    The financial assistance schedule is not officially open yet. Your QR code will automatically appear here once the distribution period begins.
+                    {distributionEnded 
+                      ? "The distribution has ended. Please wait for the extension to be announced." 
+                      : "The financial assistance schedule is not officially open yet. Your QR code will automatically appear here once the distribution period begins."}
                   </p>
                 </div>
               ) 
               
-              /* SCENARIO 3: APPROVED (READY TO CLAIM) */
+              /* SCENARIO 3: APPROVED AND DISTRIBUTION OPEN (READY TO CLAIM) */
               : isApproved ? (
                 <div className="text-center w-full animate-fade-in">
                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 inline-block mb-6 relative group">
@@ -187,7 +196,9 @@ export default function StudentQRCodePage() {
                       <div className="flex items-start gap-3">
                         <CalendarDays className="h-5 w-5 text-indigo-500 shrink-0 mt-0.5" />
                         <div>
-                          <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Schedule</p>
+                          <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">
+                            {schedule.distributionType === "extension" ? "Extended Schedule" : "Schedule"}
+                          </p>
                           <p className="font-bold text-indigo-900 leading-tight text-sm">{schedule.distributionStart} to {schedule.distributionEnd}</p>
                         </div>
                       </div>

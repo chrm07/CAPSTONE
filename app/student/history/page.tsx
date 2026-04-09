@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { StudentLayout } from "@/components/student-layout"
 import { useAuth } from "@/contexts/auth-context"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { History, Clock, FileText, CheckCircle, XCircle, CalendarDays, GraduationCap } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
@@ -21,7 +21,7 @@ export default function HistoryPage() {
     
     setIsLoading(true)
 
-    // 🔥 FIX: Direct real-time listener to the "history" collection mapping the exact student ID
+    // Direct real-time listener to the "history" collection mapping the exact student ID
     const q = query(collection(db, "history"), where("studentId", "==", user.id))
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -98,8 +98,8 @@ export default function HistoryPage() {
             {history.map((app) => (
               <Card key={app.id} className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white hover:shadow-md transition-shadow">
                 
-                {/* 🔥 FIX: Uses app.status instead of app.outcome */}
-                <div className={`h-2 w-full ${app.isClaimed ? "bg-emerald-500" : app.status === "rejected" ? "bg-red-500" : app.status === "approved" ? "bg-blue-500" : "bg-amber-500"}`} />
+                {/* Dynamically assign top border color based on Unclaimed logic */}
+                <div className={`h-2 w-full ${app.isClaimed ? "bg-emerald-500" : app.status === "rejected" ? "bg-red-500" : app.status === "approved" ? "bg-orange-500" : "bg-amber-500"}`} />
                 
                 <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 sm:p-6">
                   <div>
@@ -107,7 +107,6 @@ export default function HistoryPage() {
                       <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-slate-500" />
                       {getCycleYear(app.archivedAt)} Scholarship Cycle
                     </CardTitle>
-                    {/* 🔥 FIX: Uses app.archivedAt instead of app.completedAt */}
                     <CardDescription className="font-bold text-slate-400 uppercase tracking-widest text-[9px] sm:text-[10px] mt-1.5 flex items-center gap-1">
                       <Clock className="h-3 w-3" /> Archived on {formatDate(app.archivedAt)}
                     </CardDescription>
@@ -119,8 +118,8 @@ export default function HistoryPage() {
                         Claimed
                       </Badge>
                     ) : app.status === "approved" ? (
-                      <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-none px-3 py-1.5 text-[10px] sm:text-xs uppercase tracking-widest font-black">
-                        Approved
+                      <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-200 border-none px-3 py-1.5 text-[10px] sm:text-xs uppercase tracking-widest font-black">
+                        Unclaimed
                       </Badge>
                     ) : app.status === "rejected" ? (
                       <Badge className="bg-red-100 text-red-700 hover:bg-red-200 border-none px-3 py-1.5 text-[10px] sm:text-xs uppercase tracking-widest font-black">
@@ -169,11 +168,11 @@ export default function HistoryPage() {
                             </div>
                           </div>
                         ) : app.status === "approved" ? (
-                          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-3 text-blue-600">
+                          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-3 text-orange-600">
                             <Clock className="h-6 w-6 sm:h-5 sm:w-5 shrink-0" />
                             <div className="text-center sm:text-left">
-                              <span className="text-sm sm:text-base font-black">Approved, Unclaimed</span>
-                              <p className="text-[10px] sm:text-xs text-blue-600/70 font-bold mt-1">Payout was not finalized in this cycle.</p>
+                              <span className="text-sm sm:text-base font-black">Unclaimed Assistance</span>
+                              <p className="text-[10px] sm:text-xs text-orange-600/70 font-bold mt-1">Payout was not finalized or claimed in this cycle.</p>
                             </div>
                           </div>
                         ) : app.status === "rejected" ? (

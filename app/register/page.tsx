@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import Cropper from "react-easy-crop" 
@@ -14,6 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
 import { ArrowLeft, ArrowRight, CheckCircle, User, School, Lock, Mail, Eye, EyeOff, AlertTriangle, X, Upload } from "lucide-react"
+
+import { doc, getDoc } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
 type FormData = {
   email: string
@@ -38,7 +41,6 @@ type FormData = {
   acceptTerms: boolean 
 }
 
-// 🔥 STRICT PASSWORD VALIDATOR
 const validatePassword = (pass: string) => {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(pass);
 }
@@ -59,6 +61,8 @@ export default function RegisterPage() {
   const [crop, setCrop] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null)
+  
+  const [barangaysList, setBarangaysList] = useState<string[]>([])
 
   const [formData, setFormData] = useState<FormData>({
     email: "",
@@ -82,6 +86,36 @@ export default function RegisterPage() {
     isPWD: false,
     acceptTerms: false, 
   })
+
+  useEffect(() => {
+    const fetchBarangays = async () => {
+      try {
+        const docRef = doc(db, "settings", "barangays");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists() && docSnap.data().list) {
+          const rawList = docSnap.data().list;
+          
+          // 🔥 Extract text safely to prevent "Objects are not valid as a React child" errors
+          const namesList: string[] = rawList.map((item: any) => {
+            if (typeof item === "string") return item;
+            if (item && typeof item.name === "string") return item.name;
+            return String(item);
+          });
+          
+          // Apply natural ascending order (1, 2, 10, 11)
+          namesList.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+          
+          setBarangaysList(namesList);
+        } else {
+          setBarangaysList([...Array(14)].map((_, i) => `Barangay ${i + 1}`));
+        }
+      } catch (error) {
+        console.error("Error fetching barangays:", error);
+        setBarangaysList([...Array(14)].map((_, i) => `Barangay ${i + 1}`));
+      }
+    };
+    fetchBarangays();
+  }, []);
 
   const updateField = (field: keyof FormData, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -537,8 +571,8 @@ export default function RegisterPage() {
                                 <Select value={formData.barangay} onValueChange={(value) => updateField("barangay", value)}>
                                   <SelectTrigger className="h-11 rounded-xl"><SelectValue placeholder="Select barangay" /></SelectTrigger>
                                   <SelectContent position="popper" className="max-h-[250px] overflow-y-auto">
-                                    {[...Array(13)].map((_, i) => (
-                                      <SelectItem key={i + 1} value={`Barangay ${i + 1}`}>Barangay {i + 1}</SelectItem>
+                                    {barangaysList.map((b) => (
+                                      <SelectItem key={String(b)} value={String(b)}>{String(b)}</SelectItem>
                                     ))}
                                   </SelectContent>
                                 </Select>
