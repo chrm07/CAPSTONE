@@ -45,8 +45,8 @@ function getTimelineSteps(application: any, schedule: any) {
     },
     { 
       id: "decision", 
-      title: isRejected ? "Application Rejected" : (isApproved ? "Application Approved" : "Approved or Rejected"), 
-      description: isRejected ? (application.feedback || "Your application was not approved.") : (isApproved ? "Congratulations! Your documents have been verified." : "Awaiting final decision from the committee."), 
+      title: isRejected ? "Resubmit Required" : (isApproved ? "Application Approved" : "Approved or Resubmit"), 
+      description: isRejected ? "Action required on your submitted documents." : (isApproved ? "Congratulations! Your documents have been verified." : "Awaiting final decision from the committee."), 
       state: isRejected ? "error" : (isApproved ? "completed" : "pending"), 
       date: (isApproved || isRejected) ? formatDate(application.updatedAt) : "" 
     },
@@ -100,12 +100,10 @@ export default function StudentDashboard() {
 
     const unsubs: (() => void)[] = []
 
-    // 1. Listen to global schedule
     unsubs.push(onSnapshot(doc(db, "settings", "schedule"), (docSnap) => {
       if (docSnap.exists()) setSchedule(docSnap.data())
     }))
 
-    // 2. Listen to Application (Not archived)
     const qApp = query(collection(db, "applications"), where("studentId", "==", user.id))
     unsubs.push(onSnapshot(qApp, (snapshot) => {
       const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
@@ -114,7 +112,6 @@ export default function StudentDashboard() {
       setIsLoading(false)
     }))
 
-    // 3. Listen to Documents
     const qDocs = query(collection(db, "documents"), where("studentId", "==", user.id))
     unsubs.push(onSnapshot(qDocs, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
@@ -123,7 +120,6 @@ export default function StudentDashboard() {
       setDocProgress({ uploadedCount: uploadedNames.size, totalRequired: 9 })
     }))
 
-    // 4. Listen to History (Previous Cycle Details)
     const qHistory = query(collection(db, "history"), where("studentId", "==", user.id))
     unsubs.push(onSnapshot(qHistory, (snapshot) => {
       const histories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
@@ -167,7 +163,6 @@ export default function StudentDashboard() {
   const isApproved = currentApp?.isApproved;
   const isRejected = currentApp?.status === 'rejected';
 
-  // 🔥 DYNAMIC STATUS LOGIC (Including Extension & Ended Distribution)
   let messageData = { 
     color: "slate", icon: CalendarDays, 
     title: "Submissions Closed", 
@@ -200,7 +195,6 @@ export default function StudentDashboard() {
     }
   } else if (isApproved && !schedule?.distributionOpen) {
     if (schedule?.distributionStart) {
-      // If it had a start date but is now closed, the distribution ended.
       messageData = { 
         color: "amber", icon: Clock, 
         title: "Distribution Ended", 
@@ -208,7 +202,6 @@ export default function StudentDashboard() {
         actionText: "View QR Pass", actionLink: "/student/qrcode"
       };
     } else {
-      // It has never been scheduled yet for this cycle
       messageData = { 
         color: "blue", icon: Banknote, 
         title: "Application Approved", 
@@ -219,7 +212,7 @@ export default function StudentDashboard() {
   } else if (isRejected) {
     messageData = { 
       color: "red", icon: AlertCircle, 
-      title: "Application Rejected", 
+      title: "Action Required: Resubmit Application", 
       text: "There are issues with your submitted documents. Action required.",
       actionText: "Update Documents", actionLink: "/student/documents"
     };
@@ -236,12 +229,11 @@ export default function StudentDashboard() {
     <StudentLayout>
       <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-12">
         
-        {/* UNIFIED WELCOME & ALERTS CARD */}
+        {/* UNIFIED WELCOME & HISTORY REMARKS CARD */}
         <div className="relative overflow-hidden rounded-3xl bg-white border border-slate-200 shadow-sm animate-in slide-in-from-top-4">
           <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-400 rounded-full filter blur-[80px] opacity-10 -mr-20 -mt-20 pointer-events-none"></div>
           
           <div className="relative p-6 md:p-8 flex flex-col gap-6">
-            {/* 1. Welcome Section */}
             <div className="flex flex-col md:flex-row md:items-center gap-6">
               <div className="h-20 w-20 rounded-full bg-emerald-100 flex items-center justify-center font-black text-emerald-700 text-3xl shrink-0 overflow-hidden border-2 border-emerald-200 shadow-inner">
                  {profilePicUrl ? <img src={profilePicUrl} alt={studentData.name} className="h-full w-full object-cover" /> : initial}
@@ -252,12 +244,10 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* 2. History Remarks (Only shows if there's a past app but no active app) */}
             {!currentApp && pastApp && (
               <>
                 <hr className="border-slate-100" />
                 
-                {/* Cycle Ended Alert */}
                 <div className="flex items-start gap-4">
                   <div className="bg-blue-50 border border-blue-100 p-3 rounded-2xl shrink-0">
                     <Info className="h-6 w-6 text-blue-600" />
@@ -270,7 +260,6 @@ export default function StudentDashboard() {
                   </div>
                 </div>
 
-                {/* Unclaimed Assistance Alert (Only if approved but not claimed) */}
                 {pastApp.isApproved && !pastApp.isClaimed && (
                   <>
                     <hr className="border-slate-100" />
@@ -293,40 +282,25 @@ export default function StudentDashboard() {
         </div>
 
         {/* DYNAMIC MESSAGING BANNER */}
-        <div className={`bg-${messageData.color}-50 border-2 border-${messageData.color}-200 p-8 rounded-3xl animate-in zoom-in-95 shadow-sm`}>
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div className="flex items-start md:items-center gap-6">
-              <div className={`bg-${messageData.color}-100 p-4 rounded-full shrink-0`}>
-                <messageData.icon className={`h-8 w-8 text-${messageData.color}-600`} />
+        <div className={`bg-${messageData.color}-50 border-2 border-${messageData.color}-200 rounded-3xl animate-in zoom-in-95 shadow-sm flex flex-col overflow-hidden`}>
+          <div className={`p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6`}>
+            <div className="flex items-start md:items-center gap-5">
+              <div className={`bg-${messageData.color}-100 h-14 w-14 rounded-full flex items-center justify-center shrink-0`}>
+                <messageData.icon className={`h-7 w-7 text-${messageData.color}-600`} />
               </div>
-              <div>
-                <h3 className={`font-black text-${messageData.color}-900 uppercase tracking-tight text-2xl`}>{messageData.title}</h3>
-                <p className={`text-${messageData.color}-700 font-bold mt-2 text-lg`}>
+              <div className="flex flex-col justify-center">
+                <h3 className={`font-black text-${messageData.color}-900 uppercase tracking-tight text-xl md:text-2xl`}>{messageData.title}</h3>
+                <p className={`text-${messageData.color}-700 font-bold mt-1 text-base md:text-lg leading-snug`}>
                   {messageData.text}
                 </p>
               </div>
             </div>
             
-            {/* Standardized Action Button based on status */}
-            <Button asChild className={`bg-${messageData.color === 'slate' ? 'slate' : messageData.color}-600 hover:bg-${messageData.color === 'slate' ? 'slate' : messageData.color}-700 text-white rounded-xl font-black shadow-md h-12 px-8 w-full md:w-auto shrink-0 text-lg transition-transform active:scale-95`}>
+            <Button asChild className={`bg-${messageData.color === 'slate' ? 'slate' : messageData.color}-600 hover:bg-${messageData.color === 'slate' ? 'slate' : messageData.color}-700 text-white rounded-xl font-black shadow-md h-12 px-8 w-full md:w-auto shrink-0 text-base md:text-lg transition-transform active:scale-95`}>
               <Link href={messageData.actionLink}>{messageData.actionText} <ArrowRight className="ml-2 h-5 w-5" /></Link>
             </Button>
           </div>
         </div>
-
-        {/* REJECTION FEEDBACK ALERT */}
-        {isRejected && currentApp?.feedback && (
-          <div className="bg-red-50 border border-red-200 rounded-3xl p-6 shadow-sm animate-in slide-in-from-top-4">
-            <div className="flex items-start gap-4">
-              <AlertCircle className="h-6 w-6 text-red-600 mt-1 shrink-0" />
-              <div>
-                <h3 className="font-black text-red-800 uppercase tracking-tight text-lg">Admin Feedback</h3>
-                <p className="text-red-700 font-medium mt-1">{currentApp.feedback}</p>
-                <p className="text-sm font-bold text-red-600/70 uppercase tracking-widest mt-3">Please proceed to the Document Portal to upload the correct files.</p>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* --- 3-COLUMN SIDE-BY-SIDE CARDS --- */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
@@ -365,7 +339,7 @@ export default function StudentDashboard() {
                       isRejected ? 'text-red-600' :
                       (isSubmitted && !isApproved) ? 'text-amber-600' : 
                       isApproved ? 'text-emerald-600' : 'text-slate-400'
-                    }`}>{isRejected ? 'Rejected' : 'Review'}</span>
+                    }`}>{isRejected ? 'Resubmit' : 'Review'}</span>
                   </div>
                   <div className="flex flex-col items-center gap-2 z-10 w-16">
                     <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-black shadow-sm ${isApproved ? 'bg-emerald-500 text-white ring-4 ring-emerald-100' : 'bg-slate-100 text-slate-400'}`}>

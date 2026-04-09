@@ -17,7 +17,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogClose,
 } from "@/components/ui/dialog"
 
@@ -46,9 +45,10 @@ export default function StudentDocumentsPage() {
   const [schedule, setSchedule] = useState<any>(null) 
   const [isLoading, setIsLoading] = useState(true)
   
-  const [uploadingId, setUploadingId] = useState<string | null>(null)
+  // Holds files locally until the final Submit button is clicked
+  const [localFiles, setLocalFiles] = useState<Record<string, { file: File, previewUrl: string }>>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [viewingDoc, setViewingDoc] = useState<{ url: string; name: string } | null>(null)
+  const [viewingDoc, setViewingDoc] = useState<{ url: string; name: string; isPdf: boolean } | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -78,21 +78,27 @@ export default function StudentDocumentsPage() {
 
     return () => {
       unsubs.forEach(unsub => unsub())
+      // Clean up object URLs to prevent memory leaks
+      Object.values(localFiles).forEach(lf => URL.revokeObjectURL(lf.previewUrl))
     }
   }, [user])
 
-  // 🔥 CORE FIX: Unlock the portal if the application is 'rejected'
+  // Automatically locks the portal if submitted (pending or approved). Unlocks if rejected (Resubmit).
   const isActuallySubmitted = application?.status === 'pending' || application?.status === 'approved';
   const canUpload = schedule?.submissionOpen && !isActuallySubmitted && !application?.isClaimed;
   const isLocked = !canUpload;
   
-  const uploadedCount = REQUIRED_DOC_TYPES.filter(req => documents.some(d => (d.categoryName || d.name) === req.name)).length
+  // Calculate completed count using both DB documents AND locally staged files
+  const uploadedCount = REQUIRED_DOC_TYPES.filter(req => 
+    documents.some(d => (d.categoryName || d.name) === req.name) || !!localFiles[req.name]
+  ).length;
   const hasAllDocuments = uploadedCount === REQUIRED_DOC_TYPES.length;
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, reqName: string) => {
+  // Stages the file locally instead of uploading instantly
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, reqName: string) => {
     if (!canUpload) return 
     const file = e.target.files?.[0]
-    if (!file || !user) return
+    if (!file) return
 
     if (file.size > 5 * 1024 * 1024) {
       toast({ variant: "destructive", title: "File too large", description: "Please upload a file smaller than 5MB." })
@@ -100,59 +106,81 @@ export default function StudentDocumentsPage() {
       return
     }
 
-    try {
-      setUploadingId(reqName)
-      
-      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
-      const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
-
-      if (!cloudName || !uploadPreset) throw new Error("Cloudinary credentials missing")
-
-      const formData = new FormData()
-      formData.append("file", file)
-      formData.append("upload_preset", uploadPreset)
-      formData.append("folder", `bts_documents/${user.id}`)
-
-      const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`
-      const res = await fetch(cloudinaryUrl, { method: "POST", body: formData })
-
-      if (!res.ok) throw new Error("Upload failed")
-
-      const data = await res.json()
-      
-      await createDocumentDb({
-        studentId: user.id,
-        name: file.name,
-        categoryName: reqName,
-        url: data.secure_url, 
-        type: file.type,
-        uploadedAt: new Date().toISOString()
-      })
-
-      toast({ title: "Success", description: `${reqName} uploaded!`, className: "bg-emerald-600 text-white border-none" })
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Upload Failed", description: error.message })
-    } finally {
-      setUploadingId(null)
-      e.target.value = '' 
-    }
+    const previewUrl = URL.createObjectURL(file)
+    setLocalFiles(prev => ({
+      ...prev,
+      [reqName]: { file, previewUrl }
+    }))
+    e.target.value = ''
   }
 
+  // Deletes a locally staged file
+  const handleLocalDelete = (reqName: string) => {
+    setLocalFiles(prev => {
+      const next = { ...prev }
+      if (next[reqName]) {
+        URL.revokeObjectURL(next[reqName].previewUrl)
+        delete next[reqName]
+      }
+      return next
+    })
+  }
+
+  // Deletes an already submitted database file
   const handleDelete = async (docId: string) => {
     if (!canUpload) return
     try {
       await deleteDoc(doc(db, "documents", docId))
-      toast({ title: "Deleted", description: "Document removed." })
+      toast({ title: "Deleted", description: "Document removed from database." })
     } catch (e) { 
       toast({ variant: "destructive", title: "Error", description: "Could not delete document." }) 
     }
   }
 
+  // Handles cloud uploading and DB saving only when button is pressed
   const handleSubmitApplication = async () => {
     if (!user) return
     setIsSubmitting(true)
     
     try {
+      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+      const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
+      if (!cloudName || !uploadPreset) throw new Error("Cloudinary credentials missing")
+
+      // 1. Upload all locally staged files to Cloudinary
+      for (const reqName of Object.keys(localFiles)) {
+        const fileData = localFiles[reqName];
+        const file = fileData.file;
+
+        const formData = new FormData()
+        formData.append("file", file)
+        formData.append("upload_preset", uploadPreset)
+        formData.append("folder", `bts_documents/${user.id}`)
+
+        const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`
+        const res = await fetch(cloudinaryUrl, { method: "POST", body: formData })
+
+        if (!res.ok) throw new Error(`Upload failed for ${reqName}`)
+
+        const data = await res.json()
+        
+        // Check if replacing an existing DB doc to avoid duplicates
+        const existingDbDoc = documents.find(d => (d.categoryName || d.name) === reqName);
+        if (existingDbDoc) {
+           await deleteDoc(doc(db, "documents", existingDbDoc.id));
+        }
+
+        await createDocumentDb({
+          studentId: user.id,
+          name: file.name,
+          categoryName: reqName,
+          url: data.secure_url, 
+          type: file.type,
+          uploadedAt: new Date().toISOString()
+        })
+      }
+
+      // 2. Submit the application object
       const profile = user.profileData as any || {}
       const isResubmission = application?.status === 'rejected';
       
@@ -160,9 +188,9 @@ export default function StudentDocumentsPage() {
         await updateDoc(doc(db, "applications", application.id), {
           isSubmitted: true,
           isApproved: false,
-          isRejected: false, // 🔥 RESET: Clear rejection status
+          isRejected: false,
           isClaimed: false,
-          status: "pending", // 🔥 RESET: Move back to pending for Admin review
+          status: "pending",
           round: schedule?.round || 1,
           updatedAt: new Date().toISOString()
         })
@@ -193,7 +221,6 @@ export default function StudentDocumentsPage() {
         type: "submission"
       })
 
-      // NOTIFY ADMIN: Alert them that documents have been corrected
       await addDoc(collection(db, "notifications"), {
         to: "admin",
         senderId: user.id,
@@ -206,17 +233,25 @@ export default function StudentDocumentsPage() {
         createdAt: new Date().toISOString()
       })
 
+      // 3. Clear local states on success
+      setLocalFiles({})
       toast({ 
         title: isResubmission ? "Application Resubmitted!" : "Application Submitted!", 
-        description: "Your documents are now under review.", 
+        description: "Your documents are successfully uploaded and under review.", 
         className: "bg-emerald-600 text-white border-none" 
       })
-    } catch (error) {
-      toast({ variant: "destructive", title: "Submission Failed" })
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Submission Failed", description: error.message })
     } finally {
       setIsSubmitting(false)
     }
   }
+
+  const getThumbnailUrl = (url?: string) => {
+    if (!url) return "";
+    if (url.toLowerCase().endsWith(".pdf")) return url.replace(/\.pdf$/i, ".jpg");
+    return url;
+  };
 
   if (isLoading) {
     return (
@@ -238,14 +273,12 @@ export default function StudentDocumentsPage() {
           <p className="text-slate-500 font-medium">Follow the steps below to complete your application.</p>
         </div>
 
-        {/* ADMIN FEEDBACK / REJECTION ALERT */}
         {application?.status === 'rejected' && (
           <Alert variant="destructive" className="bg-red-50 border-red-200 rounded-3xl p-6">
             <AlertCircle className="h-6 w-6 text-red-600" />
             <AlertTitle className="text-red-800 font-black uppercase tracking-tight ml-2">Action Required: Application Rejected</AlertTitle>
             <AlertDescription className="text-red-700 font-medium mt-2 ml-2">
               <p className="text-lg font-bold">Reason: {application.feedback || "Please review and update your documents."}</p>
-              <p className="text-sm mt-1 opacity-80 italic">The portal has been unlocked. You can now delete incorrect documents and upload corrected versions below.</p>
             </AlertDescription>
           </Alert>
         )}
@@ -293,26 +326,50 @@ export default function StudentDocumentsPage() {
 
         <div className={`grid gap-6 md:grid-cols-2 lg:grid-cols-3 ${!schedule?.submissionOpen ? "opacity-60 grayscale" : ""}`}>
           {REQUIRED_DOC_TYPES.map((req) => {
-            const uploadedDoc = documents.find(d => (d.categoryName || d.name) === req.name)
-            const isUploading = uploadingId === req.name
+            const dbDoc = documents.find(d => (d.categoryName || d.name) === req.name)
+            const localDoc = localFiles[req.name]
+            const hasDoc = !!dbDoc || !!localDoc
             
+            const isLocal = !!localDoc
+            const displayDoc = localDoc 
+              ? { id: 'local', url: localDoc.previewUrl, name: localDoc.file.name, uploadedAt: new Date().toISOString() } 
+              : dbDoc
+
+            const isPdf = isLocal 
+              ? localDoc.file.type === 'application/pdf' 
+              : displayDoc?.url?.toLowerCase().endsWith('.pdf')
+
             return (
-              <Card key={req.id} className={`rounded-3xl border-2 shadow-sm flex flex-col transition-all ${uploadedDoc ? 'border-emerald-200 bg-white' : 'border-dashed border-slate-200 bg-slate-50/50'}`}>
+              <Card key={req.id} className={`rounded-3xl border-2 shadow-sm flex flex-col transition-all ${hasDoc ? 'border-emerald-200 bg-white' : 'border-dashed border-slate-200 bg-slate-50/50'}`}>
                 <CardHeader className="p-5 pb-3 flex flex-row justify-between items-start gap-2 space-y-0">
                   <CardTitle className="text-sm font-black text-slate-800 leading-tight">{req.name}</CardTitle>
-                  {uploadedDoc ? <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" /> : <AlertCircle className="h-5 w-5 text-slate-300 shrink-0" />}
+                  {hasDoc ? <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" /> : <AlertCircle className="h-5 w-5 text-slate-300 shrink-0" />}
                 </CardHeader>
                 
                 <CardContent className="p-5 pt-0 mt-auto">
-                  {uploadedDoc ? (
+                  {hasDoc && displayDoc ? (
                     <div className="flex flex-col gap-2">
-                      <Badge className="w-fit bg-emerald-50 text-emerald-700 border-emerald-100 shadow-none mb-2 font-bold uppercase text-[10px] tracking-widest">Uploaded</Badge>
+                      <Badge className={`w-fit shadow-none mb-2 font-bold uppercase text-[10px] tracking-widest ${isLocal ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`}>
+                        {isLocal ? "Staged for Upload" : "Uploaded"}
+                      </Badge>
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="flex-1 h-10 rounded-xl font-bold bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => setViewingDoc({ url: uploadedDoc.url, name: req.name })}>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          disabled={isSubmitting}
+                          className="flex-1 h-10 rounded-xl font-bold bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50" 
+                          onClick={() => setViewingDoc({ url: displayDoc.url, name: req.name, isPdf: !!isPdf })}
+                        >
                           <Eye className="h-4 w-4 mr-2" /> Review
                         </Button>
                         {!isLocked && (
-                          <Button variant="outline" size="icon" className="h-10 w-10 rounded-xl text-slate-400 border-slate-200 hover:text-red-600 hover:bg-red-50" onClick={() => handleDelete(uploadedDoc.id)}>
+                          <Button 
+                            variant="outline" 
+                            size="icon" 
+                            disabled={isSubmitting}
+                            className="h-10 w-10 rounded-xl text-slate-400 border-slate-200 hover:text-red-600 hover:bg-red-50" 
+                            onClick={() => isLocal ? handleLocalDelete(req.name) : handleDelete(displayDoc.id)}
+                          >
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         )}
@@ -328,12 +385,12 @@ export default function StudentDocumentsPage() {
                           </span>
                         </div>
                       ) : (
-                        <label className={`cursor-pointer group flex flex-col items-center justify-center py-4 border-2 border-dashed rounded-2xl transition-all ${isUploading ? 'border-emerald-400 bg-emerald-100/50' : 'border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/80'}`}>
-                          {isUploading ? <Loader2 className="h-5 w-5 text-emerald-600 animate-spin mb-1" /> : <UploadCloud className="h-5 w-5 text-emerald-500 mb-1 group-hover:scale-110 transition-transform" />}
-                          <span className={`text-[10px] font-black uppercase tracking-widest ${isUploading ? 'text-emerald-800' : 'text-emerald-700'}`}>
-                            {isUploading ? "Uploading..." : "Click to Upload"}
+                        <label className="cursor-pointer group flex flex-col items-center justify-center py-4 border-2 border-dashed rounded-2xl transition-all border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/80">
+                          <UploadCloud className="h-5 w-5 text-emerald-500 mb-1 group-hover:scale-110 transition-transform" />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                            Select File
                           </span>
-                          <input type="file" className="hidden" accept=".pdf,image/*" onChange={(e) => handleUpload(e, req.name)} disabled={!canUpload || isUploading} />
+                          <input type="file" className="hidden" accept=".pdf,image/*" onChange={(e) => handleFileSelect(e, req.name)} disabled={!canUpload || isSubmitting} />
                         </label>
                       )}
                     </div>
@@ -344,27 +401,39 @@ export default function StudentDocumentsPage() {
           })}
         </div>
 
+        {/* SUBMIT CONTAINER & WARNING REMARK */}
         {canUpload && (
-           <div className={`p-6 rounded-3xl border flex flex-col sm:flex-row items-center justify-between gap-6 shadow-sm ${hasAllDocuments ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
-              <div>
-                <h3 className={`font-black uppercase tracking-tight text-xl ${hasAllDocuments ? 'text-emerald-900' : 'text-slate-600'}`}>
-                  {application?.status === 'rejected' ? "Correct & Resubmit" : (hasAllDocuments ? "Ready to Submit" : "Submit Application")}
-                </h3>
-                <p className={`text-sm font-medium mt-1 ${hasAllDocuments ? 'text-emerald-700' : 'text-slate-500'}`}>
-                  {hasAllDocuments 
-                    ? (application?.status === 'rejected' ? "All corrections have been made. Resubmit your application for re-review." : "You have uploaded all required documents. Submit your application for review.")
-                    : `You must upload all ${REQUIRED_DOC_TYPES.length} documents before you can submit.`}
-                </p>
-              </div>
-              <Button 
-                onClick={handleSubmitApplication} 
-                disabled={isSubmitting || !hasAllDocuments} 
-                className={`w-full sm:w-auto font-black px-8 h-14 rounded-2xl text-lg shadow-lg active:scale-95 transition-transform ${hasAllDocuments ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
-              >
-                {isSubmitting ? <Loader2 className="animate-spin mr-2 h-5 w-5" /> : null} 
-                {/* 🔥 DYNAMIC RESUBMIT BUTTON */}
-                {application?.status === 'rejected' ? "Resubmit Documents" : "Submit All Documents"}
-              </Button>
+           <div className={`p-6 md:p-8 rounded-3xl border flex flex-col items-center justify-between gap-6 shadow-sm ${hasAllDocuments ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+             
+             <div className="flex flex-col md:flex-row w-full items-start md:items-center justify-between gap-6">
+               <div>
+                 <h3 className={`font-black uppercase tracking-tight text-xl md:text-2xl ${hasAllDocuments ? 'text-emerald-900' : 'text-slate-600'}`}>
+                   {application?.status === 'rejected' ? "Correct & Resubmit" : (hasAllDocuments ? "Ready to Submit" : "Submit Application")}
+                 </h3>
+                 <p className={`text-sm md:text-base font-medium mt-1 ${hasAllDocuments ? 'text-emerald-700' : 'text-slate-500'}`}>
+                   {hasAllDocuments 
+                     ? (application?.status === 'rejected' ? "All corrections have been made. Resubmit your application for re-review." : "You have selected all required documents. Submit your application to lock them in.")
+                     : `You must select all ${REQUIRED_DOC_TYPES.length} documents before you can submit.`}
+                 </p>
+               </div>
+               <Button 
+                 onClick={handleSubmitApplication} 
+                 disabled={isSubmitting || !hasAllDocuments} 
+                 className={`w-full md:w-auto shrink-0 font-black px-8 h-14 rounded-2xl text-lg shadow-lg active:scale-95 transition-transform ${hasAllDocuments ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
+               >
+                 {isSubmitting ? <Loader2 className="animate-spin mr-2 h-5 w-5" /> : null} 
+                 {isSubmitting ? "Uploading & Submitting..." : (application?.status === 'rejected' ? "Resubmit Documents" : "Submit All Documents")}
+               </Button>
+             </div>
+
+             {/* WARNING NOTE */}
+             <div className="w-full bg-amber-50/80 border border-amber-200 text-amber-800 p-4 md:p-5 rounded-2xl flex items-start gap-3 mt-2">
+               <AlertCircle className="h-5 w-5 md:h-6 md:w-6 text-amber-600 shrink-0 mt-0.5" />
+               <p className="text-sm md:text-base font-bold leading-snug">
+                 Please ensure you have uploaded the correct documents as they will be reviewed by the admin. Once submitted, your files will be locked and you cannot change them temporarily. You will only be able to edit or upload new files if the admin requires a resubmission.
+               </p>
+             </div>
+
            </div>
         )}
 
@@ -379,7 +448,7 @@ export default function StudentDocumentsPage() {
               </DialogClose>
             </DialogHeader>
             <div className="flex-1 w-full bg-slate-900 flex items-center justify-center overflow-hidden">
-              {viewingDoc?.url.endsWith('.pdf') ? (
+              {viewingDoc?.isPdf ? (
                 <iframe src={`${viewingDoc.url}#toolbar=0`} className="w-full h-full border-none bg-white" title="Document Preview" />
               ) : (
                 <img src={viewingDoc?.url} alt="Document Preview" className="w-full h-full object-contain bg-slate-900" />

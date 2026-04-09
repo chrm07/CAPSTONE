@@ -51,6 +51,13 @@ interface StatCardProps {
 
 // --- EXTRACTED COMPONENTS ---
 
+const UnclaimedIcon = ({ className }: { className?: string }) => (
+  <div className={`relative flex items-center justify-center ${className}`}>
+    <Banknote className="w-full h-full" />
+    <div className="absolute w-[120%] h-[2px] bg-current -rotate-45 rounded-full" />
+  </div>
+)
+
 function StatCard({ title, value, description, icon, iconBg, iconColor }: StatCardProps) {
   return (
     <Card 
@@ -309,7 +316,7 @@ export default function ReportsPage() {
   const getApplicationStatusData = (stats: any) => [ 
     { name: "Approved", value: stats.approved, fill: "#10b981" }, 
     { name: "Pending", value: stats.pending, fill: "#f59e0b" }, 
-    { name: "Rejected", value: stats.rejected, fill: "#ef4444" } 
+    { name: "Unsuccessful", value: stats.rejected, fill: "#ef4444" } 
   ]
 
   const handleExportExcel = (cycleData: ReportScholar[], exportName: string, reportType: string, scheduledAmount: string) => {
@@ -318,15 +325,19 @@ export default function ReportsPage() {
       let headers = ["Student Name", "Email", "Mobile Number", "Age", "Gender", "School / Course", "Barangay", "Status", "PWD"];
       if (reportType === "Claimed") { filteredData = cycleData.filter(s => s.applicationStatus === "approved" && s.isClaimed); headers.push("Date Claimed", "Amount Received"); }
       else if (reportType === "Unclaimed") { filteredData = cycleData.filter(s => s.applicationStatus === "approved" && !s.isClaimed); headers.push("Payout Status"); }
-      else if (reportType === "Rejected") { filteredData = cycleData.filter(s => s.applicationStatus === "rejected"); headers.push("Reason for Rejection / Remarks"); }
+      else if (reportType === "Unsuccessful") { filteredData = cycleData.filter(s => s.applicationStatus === "rejected"); headers.push("Reason for Rejection / Remarks"); }
 
       if (filteredData.length === 0) { toast({ title: "No Data", description: `There are no ${reportType.toLowerCase()} records to export.` }); return; }
 
       const rows = filteredData.map(s => {
-        const baseRow = [ `"${s.name}"`, `"${s.email}"`, `"${s.contactNumber}"`, s.age, s.gender, `"${s.schoolName} / ${s.course}"`, `"${s.barangay}"`, s.applicationStatus.toUpperCase(), s.isPWD ? "YES" : "NO" ];
-        if (reportType === "Claimed") baseRow.push(`"${s.claimedAt}"`, `"${scheduledAmount}"`);
+        const displayStatus = s.applicationStatus === "rejected" ? "UNSUCCESSFUL" : s.applicationStatus.toUpperCase();
+        const fallbackAmount = (s.amountReceived && s.amountReceived !== "N/A") ? s.amountReceived : scheduledAmount;
+        
+        const baseRow = [ `"${s.name}"`, `"${s.email}"`, `"${s.contactNumber}"`, s.age, s.gender, `"${s.schoolName} / ${s.course}"`, `"${s.barangay}"`, displayStatus, s.isPWD ? "YES" : "NO" ];
+        
+        if (reportType === "Claimed") baseRow.push(`"${s.claimedAt}"`, `"${fallbackAmount}"`);
         else if (reportType === "Unclaimed") baseRow.push(`"PENDING PAYOUT"`);
-        else if (reportType === "Rejected") baseRow.push(`"${s.rejectionReason}"`);
+        else if (reportType === "Unsuccessful") baseRow.push(`"${s.rejectionReason}"`);
         return baseRow;
       });
 
@@ -404,7 +415,6 @@ export default function ReportsPage() {
                 <h3 className="font-black text-slate-800 uppercase tracking-tight text-xl">Showing Data For: <span className="text-emerald-600">Active Cycle</span></h3>
               </div>
 
-              {/* Wrapped for PDF Export: Charts & Stats together */}
               <div id={`pdf-charts-export-Active_Cycle`} className="bg-slate-50/50 p-4 sm:p-6 lg:p-8 rounded-3xl w-full mx-auto max-w-[1100px]">
                 
                 <div className="hidden print:block text-center mb-6 border-b border-slate-200 pb-4">
@@ -415,7 +425,7 @@ export default function ReportsPage() {
                 <div className="grid gap-4 sm:gap-6 grid-cols-2 lg:grid-cols-4 mb-8">
                   <StatCard title="Total Applications" value={activeStats.total} description="Active Submissions" icon={<Users className="h-5 w-5" />} iconBg="bg-blue-50" iconColor="text-blue-600" />
                   <StatCard title="Approved" value={activeStats.approved} description={`${activeStats.approvalRate}% rate`} icon={<CheckCircle className="h-5 w-5" />} iconBg="bg-emerald-50" iconColor="text-emerald-600" />
-                  <StatCard title="Rejected" value={activeStats.rejected} description="Unsuccessful" icon={<XCircle className="h-5 w-5" />} iconBg="bg-red-50" iconColor="text-red-600" />
+                  <StatCard title="Unsuccessful" value={activeStats.rejected} description="Did not qualify" icon={<XCircle className="h-5 w-5" />} iconBg="bg-red-50" iconColor="text-red-600" />
                   <StatCard title="Persons w/ Disability" value={activeStats.pwd} description="PWD Applicants" icon={<Accessibility className="h-5 w-5" />} iconBg="bg-indigo-50" iconColor="text-indigo-600" />
                 </div>
 
@@ -562,12 +572,11 @@ export default function ReportsPage() {
                                     <TableCell colSpan={6} className="p-0 border-b-0 w-full">
                                       <div className="p-4 sm:p-6 lg:p-8 animate-in slide-in-from-top-2 duration-300 w-full">
                                         
-                                        {/* Generation Options */}
                                         <Card className="rounded-3xl border-slate-200 shadow-sm bg-white overflow-hidden mb-8 print:hidden">
                                           <div className="h-1 bg-emerald-500 w-full" />
                                           <CardHeader className="pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                             <div>
-                                              <CardTitle className="text-xl font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
+                                              <CardTitle className="text-lg font-black uppercase tracking-tight text-slate-900 flex items-center gap-2">
                                                 <Download className="h-5 w-5 text-emerald-600" /> GENERATE SPECIFIC REPORTS
                                               </CardTitle>
                                               <CardDescription className="font-medium text-slate-500 mt-1">Download detailed lists for {cycle}.</CardDescription>
@@ -576,13 +585,12 @@ export default function ReportsPage() {
                                           <CardContent className="pt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                                              <Button onClick={() => handleExportExcel(data, cycle, 'All', scheduledAmountText)} variant="outline" className="h-auto py-3 px-2 flex flex-col items-center justify-center rounded-xl border-slate-200 font-bold group gap-1.5"><FileSpreadsheet className="h-5 w-5 text-blue-500 shrink-0 group-hover:scale-110 transition-transform" /><span className="text-center text-[10px] uppercase tracking-tight whitespace-normal leading-tight">All Students<br/>(XLSX)</span></Button>
                                              <Button onClick={() => handleExportExcel(data, cycle, 'Claimed', scheduledAmountText)} variant="outline" className="h-auto py-3 px-2 flex flex-col items-center justify-center rounded-xl border-slate-200 font-bold group gap-1.5"><Banknote className="h-5 w-5 text-teal-500 shrink-0 group-hover:scale-110 transition-transform" /><span className="text-center text-[10px] uppercase tracking-tight whitespace-normal leading-tight">Claimed List<br/>(XLSX)</span></Button>
-                                             <Button onClick={() => handleExportExcel(data, cycle, 'Unclaimed', scheduledAmountText)} variant="outline" className="h-auto py-3 px-2 flex flex-col items-center justify-center rounded-xl border-slate-200 font-bold group gap-1.5"><Clock className="h-5 w-5 text-orange-500 shrink-0 group-hover:scale-110 transition-transform" /><span className="text-center text-[10px] uppercase tracking-tight whitespace-normal leading-tight">Unclaimed<br/>(XLSX)</span></Button>
-                                             <Button onClick={() => handleExportExcel(data, cycle, 'Rejected', scheduledAmountText)} variant="outline" className="h-auto py-3 px-2 flex flex-col items-center justify-center rounded-xl border-slate-200 font-bold group gap-1.5"><Ban className="h-5 w-5 text-red-500 shrink-0 group-hover:scale-110 transition-transform" /><span className="text-center text-[10px] uppercase tracking-tight whitespace-normal leading-tight">Rejected List<br/>(XLSX)</span></Button>
+                                             <Button onClick={() => handleExportExcel(data, cycle, 'Unclaimed', scheduledAmountText)} variant="outline" className="h-auto py-3 px-2 flex flex-col items-center justify-center rounded-xl border-slate-200 font-bold group gap-1.5"><UnclaimedIcon className="h-5 w-5 text-red-500 shrink-0 group-hover:scale-110 transition-transform" /><span className="text-center text-[10px] uppercase tracking-tight whitespace-normal leading-tight text-red-600">Unclaimed<br/>(XLSX)</span></Button>
+                                             <Button onClick={() => handleExportExcel(data, cycle, 'Unsuccessful', scheduledAmountText)} variant="outline" className="h-auto py-3 px-2 flex flex-col items-center justify-center rounded-xl border-slate-200 font-bold group gap-1.5"><XCircle className="h-5 w-5 text-red-500 shrink-0 group-hover:scale-110 transition-transform" /><span className="text-center text-[10px] uppercase tracking-tight whitespace-normal leading-tight">Unsuccessful List<br/>(XLSX)</span></Button>
                                              <Button onClick={() => handleExportPDF(cycle)} variant="outline" className="h-auto py-3 px-2 flex flex-col items-center justify-center rounded-xl border-slate-200 font-bold group gap-1.5"><FileImage className="h-5 w-5 text-emerald-500 shrink-0 group-hover:scale-110 transition-transform" /><span className="text-center text-[10px] uppercase tracking-tight whitespace-normal leading-tight">Export Charts<br/>(PDF)</span></Button>
                                           </CardContent>
                                         </Card>
 
-                                        {/* Wrapped Target Charts for PDF export */}
                                         <div id={`pdf-charts-export-${cycle.replace(/\s+/g, '-')}`} className="bg-slate-50/50 p-4 sm:p-6 lg:p-8 rounded-3xl w-full mx-auto max-w-[1100px]">
                                           
                                           <div className="hidden print:block text-center mb-6 border-b border-slate-200 pb-4">
@@ -593,10 +601,10 @@ export default function ReportsPage() {
                                           <div className="grid gap-4 sm:gap-6 grid-cols-2 md:grid-cols-3 xl:grid-cols-6 mb-8">
                                             <StatCard title="Total Applications" value={cycleStats.total} description="Archived records" icon={<Users className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-blue-50" iconColor="text-blue-600" />
                                             <StatCard title="Approved" value={cycleStats.approved} description={`${cycleStats.approvalRate}% rate`} icon={<CheckCircle className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-emerald-50" iconColor="text-emerald-600" />
-                                            <StatCard title="Rejected" value={cycleStats.rejected} description="Unsuccessful" icon={<XCircle className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-red-50" iconColor="text-red-600" />
+                                            <StatCard title="Unsuccessful" value={cycleStats.rejected} description="Did not qualify" icon={<XCircle className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-red-50" iconColor="text-red-600" />
                                             <StatCard title="Persons w/ Disability" value={cycleStats.pwd} description="PWD Applicants" icon={<Accessibility className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-indigo-50" iconColor="text-indigo-600" />
                                             <StatCard title="Claimed (Paid)" value={cycleStats.claimed} description="Successful payouts" icon={<Banknote className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-teal-50" iconColor="text-teal-600" />
-                                            <StatCard title="Unclaimed" value={cycleStats.unclaimed} description="Missed payouts" icon={<MapPin className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-orange-50" iconColor="text-orange-600" />
+                                            <StatCard title="Unclaimed" value={cycleStats.unclaimed} description="Missed payouts" icon={<UnclaimedIcon className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-red-50" iconColor="text-red-600" />
                                           </div>
 
                                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -636,11 +644,10 @@ export default function ReportsPage() {
                                               <Table className="min-w-[800px] w-full">
                                                 <TableHeader className="bg-white sticky top-0 shadow-sm z-10">
                                                   <TableRow className="border-slate-100">
-                                                    <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest pl-4 py-4 w-[20%]">Student Name</TableHead>
-                                                    <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest w-[25%]">School / Course</TableHead>
+                                                    <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest pl-4 py-4 w-[25%]">Student Name</TableHead>
+                                                    <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest w-[30%]">School / Course</TableHead>
                                                     <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest w-[15%]">Barangay</TableHead>
                                                     <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest text-center w-[15%]">Status</TableHead>
-                                                    <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest text-center w-[10%]">Payout</TableHead>
                                                     <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest pr-4 text-right w-[15%]">Amount Claimed</TableHead>
                                                   </TableRow>
                                                 </TableHeader>
@@ -661,19 +668,16 @@ export default function ReportsPage() {
                                                         <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-200 shadow-none text-[10px] whitespace-nowrap">{s.barangay}</Badge>
                                                       </TableCell>
                                                       <TableCell className="text-center">
-                                                        <Badge className={`shadow-none font-bold uppercase tracking-widest text-[9px] border-none ${s.applicationStatus === "approved" ? "bg-emerald-100 text-emerald-700" : s.applicationStatus === "rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
-                                                          {s.applicationStatus}
+                                                        <Badge className={`shadow-none font-bold uppercase tracking-widest text-[9px] border-none ${
+                                                          s.applicationStatus === "claimed" || s.applicationStatus === "approved" ? "bg-emerald-100 text-emerald-700" : 
+                                                          s.applicationStatus === "unclaimed" || s.applicationStatus === "rejected" ? "bg-red-100 text-red-700" : 
+                                                          "bg-amber-100 text-amber-700"
+                                                        }`}>
+                                                          {s.applicationStatus === "rejected" ? "Unsuccessful" : s.applicationStatus}
                                                         </Badge>
                                                       </TableCell>
-                                                      <TableCell className="text-center">
-                                                         {s.applicationStatus === "approved" ? (
-                                                           s.isClaimed ? <Badge className="bg-teal-100 text-teal-700 shadow-none border-none text-[9px] tracking-widest uppercase">Claimed</Badge> : <Badge className="bg-orange-100 text-orange-700 shadow-none border-none text-[9px] tracking-widest uppercase">Pending</Badge>
-                                                         ) : (
-                                                           <span className="text-slate-300">-</span>
-                                                         )}
-                                                      </TableCell>
                                                       <TableCell className="pr-4 font-black text-slate-700 text-xs text-right">
-                                                         {s.applicationStatus === "approved" ? scheduledAmountText : <span className="text-slate-300">-</span>}
+                                                         {s.applicationStatus === "claimed" || (s.applicationStatus === "approved" && s.isClaimed) ? ((s.amountReceived && s.amountReceived !== "N/A") ? s.amountReceived : scheduledAmountText) : <span className="text-slate-300">-</span>}
                                                       </TableCell>
                                                     </TableRow>
                                                   ))}

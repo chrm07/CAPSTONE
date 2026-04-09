@@ -190,7 +190,6 @@ export default function ApplicationsPage() {
         const isHistoryMode = !!selectedApp.archivedAt;
         let relevantDocs = docs.filter(doc => {
           if (isHistoryMode) {
-            // 🔥 FIX: Correctly maps archived documents to their history parent application
             return doc.applicationId === selectedApp.id || (doc.isArchived === true && !doc.applicationId);
           }
           return !doc.isArchived;
@@ -240,14 +239,16 @@ export default function ApplicationsPage() {
       await addDoc(collection(db, "notifications"), {
         to: "student",
         userId: selectedApp.studentId,
-        message: status === "approved" ? "Your application has been approved! You can now view your QR Ticket." : `Your application has been rejected: ${feedbackText}`,
+        message: status === "approved" 
+          ? "Your application has been approved! You can now view your QR Ticket." 
+          : `Action Required: Resubmit your application: ${feedbackText}`,
         link: "/student/documents",
         read: false,
         createdAt: new Date().toISOString()
       });
       
       toast({
-        title: `Application ${status === 'approved' ? 'Approved' : 'Rejected'}`,
+        title: `Application ${status === 'approved' ? 'Approved' : 'Resubmit Requested'}`,
         description: `The student has been notified immediately.`,
         variant: status === 'approved' ? 'default' : 'destructive'
       });
@@ -385,7 +386,7 @@ export default function ApplicationsPage() {
                         <SelectItem value="all" className="font-bold py-2">All Status</SelectItem>
                         <SelectItem value="pending" className="font-medium py-2">Pending</SelectItem>
                         <SelectItem value="approved" className="font-medium py-2">Approved</SelectItem>
-                        <SelectItem value="rejected" className="font-medium py-2">Rejected</SelectItem>
+                        <SelectItem value="rejected" className="font-medium py-2">Resubmit</SelectItem>
                       </SelectContent>
                     </Select>
 
@@ -518,7 +519,7 @@ export default function ApplicationsPage() {
                                           {app.status === "approved" && <CheckCircle className="h-3 w-3 mr-1" />}
                                           {app.status === "rejected" && <XCircle className="h-3 w-3 mr-1" />}
                                           {app.status === "pending" && <Clock className="h-3 w-3 mr-1" />}
-                                          {app.status}
+                                          {app.status === "rejected" ? "Resubmit" : app.status}
                                         </Badge>
                                         
                                         <Button 
@@ -620,7 +621,7 @@ export default function ApplicationsPage() {
                                         >
                                           {app.status === "approved" && <CheckCircle className="h-3 w-3 mr-1" />}
                                           {app.status === "rejected" && <XCircle className="h-3 w-3 mr-1" />}
-                                          {app.status}
+                                          {app.status === "rejected" ? "Resubmit" : app.status}
                                         </Badge>
                                         
                                         <Button 
@@ -679,7 +680,7 @@ export default function ApplicationsPage() {
                           "bg-amber-100 text-amber-700"
                         }`}
                       >
-                        {selectedApp.status}
+                        {selectedApp.status === "rejected" ? "Resubmit" : selectedApp.status}
                       </Badge>
                     </div>
                   </DialogHeader>
@@ -756,7 +757,7 @@ export default function ApplicationsPage() {
                           disabled={isUpdating || selectedApp.status === 'rejected'}
                           className="rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 w-full sm:w-auto font-bold h-11 px-6"
                         >
-                          Reject Application
+                          Resubmit
                         </Button>
                         <Button 
                           onClick={() => handleUpdateStatus("approved")}
@@ -777,9 +778,9 @@ export default function ApplicationsPage() {
           <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
              <DialogContent className="rounded-3xl p-6 sm:max-w-md bg-white border-0 shadow-2xl">
                <DialogHeader>
-                 <DialogTitle className="text-xl font-black text-red-600 tracking-tight">Reject Application</DialogTitle>
+                 <DialogTitle className="text-xl font-black text-red-600 tracking-tight">Request Resubmit</DialogTitle>
                  <DialogDescription className="font-medium text-slate-500 mt-2">
-                   Please provide a clear reason for rejection. This will be sent directly to the student so they can correct their documents.
+                   Please provide a clear reason for requesting a resubmission. This will be sent directly to the student so they can correct their documents.
                  </DialogDescription>
                </DialogHeader>
                <div className="py-4">
@@ -801,7 +802,7 @@ export default function ApplicationsPage() {
                    }}
                  >
                    {isUpdating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                   Confirm Rejection
+                   Confirm Resubmit
                  </Button>
                </DialogFooter>
              </DialogContent>
