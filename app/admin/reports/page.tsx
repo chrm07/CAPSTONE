@@ -303,8 +303,8 @@ export default function ReportsPage() {
   
   const getCourseData = (data: ReportScholar[]) => { 
     const counts = data.reduce((acc, s) => { 
-      const courseName = s.course && s.course.trim() !== "" ? s.course : "Unspecified";
-      acc[courseName] = (acc[courseName] || 0) + 1; 
+      const programName = s.course && s.course.trim() !== "" ? s.course : "Unspecified";
+      acc[programName] = (acc[programName] || 0) + 1; 
       return acc; 
     }, {} as Record<string, number>); 
     const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4"]; 
@@ -322,7 +322,7 @@ export default function ReportsPage() {
   const handleExportExcel = (cycleData: ReportScholar[], exportName: string, reportType: string, scheduledAmount: string) => {
     try {
       let filteredData = cycleData;
-      let headers = ["Student Name", "Email", "Mobile Number", "Age", "Gender", "School / Course", "Barangay", "Status", "PWD"];
+      let headers = ["Student Name", "Email", "Mobile Number", "Age", "Gender", "School / Program", "Barangay", "Status", "PWD"];
       if (reportType === "Claimed") { filteredData = cycleData.filter(s => s.applicationStatus === "approved" && s.isClaimed); headers.push("Date Claimed", "Amount Received"); }
       else if (reportType === "Unclaimed") { filteredData = cycleData.filter(s => s.applicationStatus === "approved" && !s.isClaimed); headers.push("Payout Status"); }
       else if (reportType === "Unsuccessful") { filteredData = cycleData.filter(s => s.applicationStatus === "rejected"); headers.push("Reason for Rejection / Remarks"); }
@@ -492,7 +492,7 @@ export default function ReportsPage() {
                 </Card>
 
                 <Card className="rounded-3xl border-slate-200 shadow-sm bg-white lg:col-span-2">
-                  <CardHeader className="pb-2 border-b border-slate-100 mb-4"><CardTitle className="flex items-center gap-2 text-sm font-black uppercase text-slate-700"><BookOpen className="h-4 w-4 text-emerald-600" /> Applicants by Course (Active)</CardTitle></CardHeader>
+                  <CardHeader className="pb-2 border-b border-slate-100 mb-4"><CardTitle className="flex items-center gap-2 text-sm font-black uppercase text-slate-700"><BookOpen className="h-4 w-4 text-emerald-600" /> Applicants by Program (Active)</CardTitle></CardHeader>
                   <CardContent className="h-96">
                     {renderChart(getCourseData(activeScholars), 
                       <ResponsiveContainer width="100%" height={350}><BarChart data={getCourseData(activeScholars)} layout="vertical" margin={{ top: 20, right: 30, left: 0, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} /><XAxis type="number" stroke="#6b7280" axisLine={false} tickLine={false} /><YAxis dataKey="name" type="category" width={220} stroke="#6b7280" fontSize={11} axisLine={false} tickLine={false} /><Tooltip content={<CustomTooltip />} cursor={{fill: '#f8fafc'}} /><Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20} isAnimationActive={false}>{getCourseData(activeScholars).map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}</Bar></BarChart></ResponsiveContainer>, "No data."
@@ -645,7 +645,7 @@ export default function ReportsPage() {
                                                 <TableHeader className="bg-white sticky top-0 shadow-sm z-10">
                                                   <TableRow className="border-slate-100">
                                                     <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest pl-4 py-4 w-[25%]">Student Name</TableHead>
-                                                    <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest w-[30%]">School / Course</TableHead>
+                                                    <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest w-[30%]">School / Program</TableHead>
                                                     <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest w-[15%]">Barangay</TableHead>
                                                     <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest text-center w-[15%]">Status</TableHead>
                                                     <TableHead className="font-black text-slate-400 uppercase text-[10px] tracking-widest pr-4 text-right w-[15%]">Amount Claimed</TableHead>
@@ -661,7 +661,7 @@ export default function ReportsPage() {
                                                       <TableCell className="whitespace-normal leading-tight">
                                                         <div className="flex flex-col gap-0.5">
                                                           <span className="font-bold text-slate-700 text-xs break-words line-clamp-1" title={s.schoolName}>{s.schoolName}</span>
-                                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest break-words line-clamp-1" title={s.course}>{s.course}</span>
+                                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest break-words line-clamp-1" title={s.program}>{s.program}</span>
                                                         </div>
                                                       </TableCell>
                                                       <TableCell>

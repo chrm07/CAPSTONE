@@ -29,7 +29,6 @@ type Barangay = {
   updatedAt: string;
 }
 
-// Helper for multi-line centered date display
 const DateWindowDisplay = ({ start, end }: { start?: string, end?: string }) => (
   <div className="flex flex-col items-center justify-center text-center py-1">
     <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap">{start || "N/A"}</span>
@@ -55,20 +54,16 @@ export default function SchedulingPage() {
   const [isSubModalOpen, setIsSubModalOpen] = useState(false)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   
-  // Manage Barangays States
   const [isManageBarangaysOpen, setIsManageBarangaysOpen] = useState(false)
   const [barangaySearch, setBarangaySearch] = useState("")
   
-  // Selection Search State for Distribution Modal
   const [barangaySelectionSearch, setBarangaySelectionSearch] = useState("")
   
-  // Add/Edit Barangay Form States
   const [isBarangayFormOpen, setIsBarangayFormOpen] = useState(false)
   const [editingBarangay, setEditingBarangay] = useState<Barangay | null>(null)
   const [barangayFormName, setBarangayFormName] = useState("")
   const [isSavingBarangay, setIsSavingBarangay] = useState(false)
 
-  // Delete Barangay States
   const [isDeleteBarangayOpen, setIsDeleteBarangayOpen] = useState(false)
   const [barangayToDelete, setBarangayToDelete] = useState<Barangay | null>(null)
 
@@ -79,7 +74,6 @@ export default function SchedulingPage() {
   const [subFormData, setSubFormData] = useState({ startDate: "", endDate: "" })
   const [formData, setFormData] = useState({ barangays: [] as string[], startDate: "", endDate: "", startTime: "", distributionAmount: "" })
   
-  // Distribution Type State (Regular vs Extension)
   const [distributionType, setDistributionType] = useState<"regular" | "extension">("regular")
 
   useEffect(() => {
@@ -121,7 +115,6 @@ export default function SchedulingPage() {
           return b;
         });
         
-        // Natural Number Sorting
         setBarangaysList(mappedList.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })));
       } else {
         setBarangaysList([]);
@@ -324,6 +317,7 @@ export default function SchedulingPage() {
     }
   };
 
+  // 🔥 FIX: Automatically synchronizes the updated barangay to all students and applications
   const handleSaveBarangay = async () => {
     if (!barangayFormName.trim()) {
       toast({ variant: "destructive", title: "Error", description: "Barangay name cannot be empty." });
@@ -342,18 +336,40 @@ export default function SchedulingPage() {
       let updatedList;
       
       if (editingBarangay) {
-        updatedList = barangaysList.map(b => b.id === editingBarangay.id ? { ...b, name: barangayFormName.trim(), updatedAt: now } : b);
+        const oldName = editingBarangay.name;
+        const newName = barangayFormName.trim();
+        
+        updatedList = barangaysList.map(b => b.id === editingBarangay.id ? { ...b, name: newName, updatedAt: now } : b);
+        
+        // Dynamic Synchronization Trigger
+        if (oldName !== newName) {
+           const batch = writeBatch(db);
+           
+           // Sync User Profiles
+           const usersSnap = await getDocs(query(collection(db, "users"), where("profileData.barangay", "==", oldName)));
+           usersSnap.forEach(userDoc => {
+               batch.update(userDoc.ref, { "profileData.barangay": newName });
+           });
+           
+           // Sync Active Applications
+           const appsSnap = await getDocs(query(collection(db, "applications"), where("barangay", "==", oldName)));
+           appsSnap.forEach(appDoc => {
+               batch.update(appDoc.ref, { "barangay": newName });
+           });
+           
+           await batch.commit();
+        }
       } else {
         const newBarangay = { id: Math.random().toString(36).substr(2, 9), name: barangayFormName.trim(), createdAt: now, updatedAt: now };
         updatedList = [...barangaysList, newBarangay];
       }
 
       await setDoc(doc(db, "settings", "barangays"), { list: updatedList }, { merge: true });
-      toast({ title: "Success", description: editingBarangay ? "Barangay updated successfully." : "Barangay added successfully.", className: "bg-emerald-600 text-white" });
+      toast({ title: "Success", description: editingBarangay ? "Barangay updated & synced successfully." : "Barangay added successfully.", className: "bg-emerald-600 text-white" });
       setIsBarangayFormOpen(false);
       setBarangayFormName("");
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to save barangay." });
+      toast({ variant: "destructive", title: "Error", description: "Failed to save and sync barangay." });
     } finally {
       setIsSavingBarangay(false);
     }

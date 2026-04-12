@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       gender,
       barangay, 
       schoolName, 
-      course, 
+      program, // 🔥 FIX: Extracting 'program' instead of the legacy 'course'
       yearLevel,
       semester,
       isPWD 
@@ -135,7 +135,8 @@ export async function POST(request: Request) {
           gender: gender || "", 
           barangay: barangay || "",
           schoolName: schoolName || "",
-          course: course || "",
+          program: program || "", // 🔥 FIX: Properly binding the frontend payload to 'program'
+          course: program || "",  // 🔥 Dual-saving to legacy 'course' key to prevent breaking other UI elements
           yearLevel: yearLevel || "",
           semester: semester || "", 
           isPWD: !!isPWD,
@@ -151,7 +152,8 @@ export async function POST(request: Request) {
         lastName,
         fullName: combinedFullName, 
         email: cleanEmail,
-        course: course || "",
+        program: program || "", 
+        course: program || "",  
         yearLevel: yearLevel || "",
         semester: semester || "", 
         school: schoolName || "",

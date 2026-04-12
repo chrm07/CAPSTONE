@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, ArrowRight, CheckCircle, User, School, Lock, Mail, Eye, EyeOff, AlertTriangle, X, Upload } from "lucide-react"
+import { ArrowLeft, ArrowRight, CheckCircle, User, School, Lock, Mail, Eye, EyeOff, AlertTriangle, X, Upload, Loader2 } from "lucide-react"
 
 import { doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
@@ -31,8 +31,8 @@ type FormData = {
   otherGender: string
   barangay: string
   school: string
-  course: string
-  otherCourse: string
+  program: string
+  otherProgram: string
   yearLevel: string
   semester: string 
   password: string
@@ -77,8 +77,8 @@ export default function RegisterPage() {
     otherGender: "",
     barangay: "",
     school: "",
-    course: "",
-    otherCourse: "",
+    program: "",
+    otherProgram: "",
     yearLevel: "",
     semester: "",
     password: "",
@@ -95,14 +95,12 @@ export default function RegisterPage() {
         if (docSnap.exists() && docSnap.data().list) {
           const rawList = docSnap.data().list;
           
-          // 🔥 Extract text safely to prevent "Objects are not valid as a React child" errors
           const namesList: string[] = rawList.map((item: any) => {
             if (typeof item === "string") return item;
             if (item && typeof item.name === "string") return item.name;
             return String(item);
           });
           
-          // Apply natural ascending order (1, 2, 10, 11)
           namesList.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
           
           setBarangaysList(namesList);
@@ -237,15 +235,15 @@ export default function RegisterPage() {
     }
 
     if (step === 2) {
-      const requiredFields: (keyof FormData)[] = ["school", "course", "yearLevel", "semester"]
+      const requiredFields: (keyof FormData)[] = ["school", "program", "yearLevel", "semester"]
       requiredFields.forEach((field) => {
         if (!formData[field] || String(formData[field]).trim() === "") {
           newErrors[field] = "This field is required"
           isValid = false
         }
       })
-      if (formData.course === "Other" && (!formData.otherCourse || formData.otherCourse.trim() === "")) {
-        newErrors.otherCourse = "Please specify your course"
+      if (formData.program === "Other" && (!formData.otherProgram || formData.otherProgram.trim() === "")) {
+        newErrors.otherProgram = "Please specify your program"
         isValid = false
       }
     }
@@ -300,7 +298,7 @@ export default function RegisterPage() {
           gender: formData.gender === "Others" ? formData.otherGender : formData.gender,
           barangay: formData.barangay,
           schoolName: formData.school,
-          course: formData.course === "Other" ? formData.otherCourse : formData.course,
+          program: formData.program === "Other" ? formData.otherProgram : formData.program,
           yearLevel: formData.yearLevel,
           semester: formData.semester, 
           isPWD: formData.isPWD, 
@@ -373,8 +371,9 @@ export default function RegisterPage() {
         </div>
       )}
 
+      {/* Global Registration Nav Bar (No Logo) */}
       <header className="w-full bg-green-600 shadow-xl">
-        <div className="container flex h-16 items-center">
+        <div className="container flex h-16 items-center px-4 md:px-8">
           <Link href="/" className="flex items-center space-x-2 text-white hover:text-green-100 transition-colors">
             <ArrowLeft className="h-4 w-4" />
             <span className="font-medium">Back to Home</span>
@@ -385,10 +384,12 @@ export default function RegisterPage() {
       <div className="flex-1 flex items-center justify-center p-4 md:p-6 lg:p-8">
         <div className="w-full max-w-5xl">
           <div className="bg-white rounded-3xl shadow-2xl border border-white/20 overflow-hidden">
+            
             <div className="h-3 bg-slate-200">
               <div className="h-full bg-green-500 transition-all duration-700" style={{ width: `${progressPercentage}%` }} />
             </div>
 
+            {/* Restored Original Green Header layout with Icon Grid */}
             <div className="px-8 py-8 text-center bg-green-600 text-white">
               <div className="flex items-center justify-center gap-6">
                 <div className="flex items-center gap-3">
@@ -602,31 +603,39 @@ export default function RegisterPage() {
                         </div>
 
                         <div className="space-y-2 md:col-span-2">
-                          <Label>Course</Label>
-                          <Select value={formData.course} onValueChange={(value) => updateField("course", value)}>
-                            <SelectTrigger className="h-12 rounded-xl"><SelectValue placeholder="Select your course" /></SelectTrigger>
+                          <Label>Program</Label>
+                          <Select value={formData.program} onValueChange={(value) => updateField("program", value)}>
+                            <SelectTrigger className="h-12 rounded-xl"><SelectValue placeholder="Select your program" /></SelectTrigger>
                             <SelectContent position="popper" className="max-h-[250px] overflow-y-auto">
-                              <SelectItem value="BS Information Technology (BSIT)">BS Information Technology (BSIT)</SelectItem>
-                              <SelectItem value="BS Computer Science (BSCS)">BS Computer Science (BSCS)</SelectItem>
-                              <SelectItem value="BS Accountancy (BSA)">BS Accountancy (BSA)</SelectItem>
-                              <SelectItem value="BS Business Administration (BSBA)">BS Business Administration (BSBA)</SelectItem>
-                              <SelectItem value="BS Civil Engineering (BSCE)">BS Civil Engineering (BSCE)</SelectItem>
-                              <SelectItem value="BS Nursing (BSN)">BS Nursing (BSN)</SelectItem>
-                              <SelectItem value="Bachelor of Elementary Education (BEED)">Bachelor of Elementary Education (BEED)</SelectItem>
-                              <SelectItem value="Bachelor of Secondary Education (BSED)">Bachelor of Secondary Education (BSED)</SelectItem>
-                              <SelectItem value="BS Hospitality Management (BSHM)">BS Hospitality Management (BSHM)</SelectItem>
-                              <SelectItem value="BS Tourism Management (BSTM)">BS Tourism Management (BSTM)</SelectItem>
+                              <SelectItem value="BS Information Technology">BS Information Technology</SelectItem>
+                              <SelectItem value="BS Computer Science">BS Computer Science</SelectItem>
+                              <SelectItem value="BS Business Administration">BS Business Administration</SelectItem>
+                              <SelectItem value="BS Accountancy">BS Accountancy</SelectItem>
+                              <SelectItem value="BS Hospitality Management">BS Hospitality Management</SelectItem>
+                              <SelectItem value="BS Tourism Management">BS Tourism Management</SelectItem>
+                              <SelectItem value="Bachelor of Elementary Education">Bachelor of Elementary Education</SelectItem>
+                              <SelectItem value="Bachelor of Secondary Education">Bachelor of Secondary Education</SelectItem>
+                              <SelectItem value="BS Civil Engineering">BS Civil Engineering</SelectItem>
+                              <SelectItem value="BS Electrical Engineering">BS Electrical Engineering</SelectItem>
+                              <SelectItem value="BS Mechanical Engineering">BS Mechanical Engineering</SelectItem>
+                              <SelectItem value="BS Computer Engineering">BS Computer Engineering</SelectItem>
+                              <SelectItem value="BS Architecture">BS Architecture</SelectItem>
+                              <SelectItem value="BS Nursing">BS Nursing</SelectItem>
+                              <SelectItem value="BS Psychology">BS Psychology</SelectItem>
+                              <SelectItem value="BS Criminology">BS Criminology</SelectItem>
+                              <SelectItem value="BA Communication">BA Communication</SelectItem>
+                              <SelectItem value="BA Political Science">BA Political Science</SelectItem>
                               <SelectItem value="Other">Other</SelectItem>
                             </SelectContent>
                           </Select>
-                          {errors.course && <p className="text-sm text-red-600">{errors.course}</p>}
+                          {errors.program && <p className="text-sm text-red-600">{errors.program}</p>}
                         </div>
 
-                        {formData.course === "Other" && (
+                        {formData.program === "Other" && (
                           <div className="space-y-2 md:col-span-2">
-                            <Label htmlFor="otherCourse">Specify your Course</Label>
-                            <Input id="otherCourse" placeholder="Please type your full course name" value={formData.otherCourse} onChange={(e) => updateField("otherCourse", e.target.value)} className="h-12 rounded-xl" />
-                            {errors.otherCourse && <p className="text-sm text-red-600">{errors.otherCourse}</p>}
+                            <Label htmlFor="otherProgram">Specify your Program</Label>
+                            <Input id="otherProgram" placeholder="Please type your full program name" value={formData.otherProgram} onChange={(e) => updateField("otherProgram", e.target.value)} className="h-12 rounded-xl" />
+                            {errors.otherProgram && <p className="text-sm text-red-600">{errors.otherProgram}</p>}
                           </div>
                         )}
 
@@ -639,6 +648,7 @@ export default function RegisterPage() {
                               <SelectItem value="2nd Year">2nd Year</SelectItem>
                               <SelectItem value="3rd Year">3rd Year</SelectItem>
                               <SelectItem value="4th Year">4th Year</SelectItem>
+                              <SelectItem value="5th Year">5th Year</SelectItem>
                             </SelectContent>
                           </Select>
                           {errors.yearLevel && <p className="text-sm text-red-600">{errors.yearLevel}</p>}
@@ -651,6 +661,7 @@ export default function RegisterPage() {
                             <SelectContent position="popper">
                               <SelectItem value="1st Semester">1st Semester</SelectItem>
                               <SelectItem value="2nd Semester">2nd Semester</SelectItem>
+                              <SelectItem value="Summer">Summer</SelectItem>
                             </SelectContent>
                           </Select>
                           {errors.semester && <p className="text-sm text-red-600">{errors.semester}</p>}
@@ -726,28 +737,27 @@ export default function RegisterPage() {
                       </div>
                     )}
 
-                    <div className="flex justify-between pt-8 border-t border-slate-100 mt-8">
+                    {/* Perfectly aligned flexbox navigation buttons */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="w-full pt-8 border-t border-slate-100 mt-8">
                       {step > 0 ? (
-                        <Button type="button" variant="outline" onClick={handlePrevious} className="flex items-center gap-2 h-12 px-6 rounded-xl bg-transparent border-slate-300 text-slate-600 hover:bg-slate-50">
+                        <Button type="button" variant="outline" onClick={handlePrevious} className="flex items-center justify-center gap-2 h-12 px-6 rounded-xl bg-transparent border-slate-300 text-slate-600 hover:bg-slate-50">
                           <ArrowLeft className="h-4 w-4" /> Previous
                         </Button>
                       ) : (
-                        <div></div>
+                        <div aria-hidden="true" style={{ width: '120px' }}></div>
                       )}
 
                       {step < 3 ? (
-                        <Button type="button" onClick={handleNext} disabled={isLoading} className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2 h-12 px-8 rounded-xl shadow-md transition-all hover:shadow-lg">
+                        <Button type="button" onClick={handleNext} disabled={isLoading} className="bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2 h-12 px-8 rounded-xl shadow-md transition-all hover:shadow-lg">
+                          {isLoading && step === 0 ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
                           {isLoading && step === 0 ? "Verifying..." : step === 0 ? "Verify Email" : "Next"}
                           {!isLoading && <ArrowRight className="h-4 w-4" />}
                         </Button>
                       ) : (
-                        <Button type="submit" disabled={isLoading || !!errors.password || !!errors.confirmPassword} className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2 h-12 px-8 rounded-xl shadow-md transition-all hover:shadow-lg">
+                        <Button type="submit" disabled={isLoading || !!errors.password || !!errors.confirmPassword} className="bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2 h-12 px-8 rounded-xl shadow-md transition-all hover:shadow-lg">
                           {isLoading ? (
                             <>
-                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
+                              <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" />
                               Creating Account...
                             </>
                           ) : (
