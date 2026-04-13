@@ -61,7 +61,7 @@ const UnclaimedIcon = ({ className }: { className?: string }) => (
 function StatCard({ title, value, description, icon, iconBg, iconColor }: StatCardProps) {
   return (
     <Card 
-      className="relative overflow-hidden transition-all duration-200 border border-slate-100 shadow-sm hover:shadow-md rounded-[20px] bg-white p-5 flex flex-col h-full min-h-[140px] break-inside-avoid"
+      className="relative overflow-hidden transition-all duration-200 border border-slate-100 shadow-sm hover:shadow-md rounded-[20px] bg-white p-5 flex flex-col h-full min-h-[140px] break-inside-avoid w-full"
     >
       <div className="flex flex-row justify-between items-start gap-3 mb-2 w-full">
         <h3 className="text-[11px] lg:text-xs font-black uppercase tracking-widest text-slate-500 leading-snug whitespace-normal break-words flex-1 pr-1">
@@ -319,18 +319,36 @@ export default function ReportsPage() {
     { name: "Unsuccessful", value: stats.rejected, fill: "#ef4444" } 
   ]
 
+  // 🔥 FIX: Adjusted filtering logic to support both active and historical status schemas
   const handleExportExcel = (cycleData: ReportScholar[], exportName: string, reportType: string, scheduledAmount: string) => {
     try {
       let filteredData = cycleData;
       let headers = ["Student Name", "Email", "Mobile Number", "Age", "Gender", "School / Program", "Barangay", "Status", "PWD"];
-      if (reportType === "Claimed") { filteredData = cycleData.filter(s => s.applicationStatus === "approved" && s.isClaimed); headers.push("Date Claimed", "Amount Received"); }
-      else if (reportType === "Unclaimed") { filteredData = cycleData.filter(s => s.applicationStatus === "approved" && !s.isClaimed); headers.push("Payout Status"); }
-      else if (reportType === "Unsuccessful") { filteredData = cycleData.filter(s => s.applicationStatus === "rejected"); headers.push("Reason for Rejection / Remarks"); }
+      
+      if (reportType === "Claimed") { 
+        filteredData = cycleData.filter(s => s.applicationStatus === "claimed" || (s.applicationStatus === "approved" && s.isClaimed)); 
+        headers.push("Date Claimed", "Amount Received"); 
+      }
+      else if (reportType === "Unclaimed") { 
+        filteredData = cycleData.filter(s => s.applicationStatus === "unclaimed" || (s.applicationStatus === "approved" && !s.isClaimed)); 
+        headers.push("Payout Status"); 
+      }
+      else if (reportType === "Unsuccessful") { 
+        filteredData = cycleData.filter(s => s.applicationStatus === "rejected"); 
+        headers.push("Reason for Rejection / Remarks"); 
+      }
 
-      if (filteredData.length === 0) { toast({ title: "No Data", description: `There are no ${reportType.toLowerCase()} records to export.` }); return; }
+      if (filteredData.length === 0) { 
+        toast({ title: "No Data", description: `There are no ${reportType.toLowerCase()} records to export.` }); 
+        return; 
+      }
 
       const rows = filteredData.map(s => {
-        const displayStatus = s.applicationStatus === "rejected" ? "UNSUCCESSFUL" : s.applicationStatus.toUpperCase();
+        let displayStatus = s.applicationStatus.toUpperCase();
+        if (s.applicationStatus === "rejected") displayStatus = "UNSUCCESSFUL";
+        if (reportType === "Claimed" || s.isClaimed) displayStatus = "CLAIMED";
+        if (reportType === "Unclaimed" || (s.applicationStatus === "approved" && !s.isClaimed)) displayStatus = "UNCLAIMED";
+
         const fallbackAmount = (s.amountReceived && s.amountReceived !== "N/A") ? s.amountReceived : scheduledAmount;
         
         const baseRow = [ `"${s.name}"`, `"${s.email}"`, `"${s.contactNumber}"`, s.age, s.gender, `"${s.schoolName} / ${s.course}"`, `"${s.barangay}"`, displayStatus, s.isPWD ? "YES" : "NO" ];
@@ -598,7 +616,7 @@ export default function ReportsPage() {
                                             <p className="text-slate-500 font-medium text-sm">Historical Analytics & Data Report</p>
                                           </div>
 
-                                          <div className="grid gap-4 sm:gap-6 grid-cols-2 md:grid-cols-3 xl:grid-cols-6 mb-8">
+                                          <div className="grid gap-4 sm:gap-6 grid-cols-2 lg:grid-cols-3 mb-8 w-full">
                                             <StatCard title="Total Applications" value={cycleStats.total} description="Archived records" icon={<Users className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-blue-50" iconColor="text-blue-600" />
                                             <StatCard title="Approved" value={cycleStats.approved} description={`${cycleStats.approvalRate}% rate`} icon={<CheckCircle className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-emerald-50" iconColor="text-emerald-600" />
                                             <StatCard title="Unsuccessful" value={cycleStats.rejected} description="Did not qualify" icon={<XCircle className="h-4 w-4 sm:h-5 sm:w-5" />} iconBg="bg-red-50" iconColor="text-red-600" />
@@ -661,7 +679,7 @@ export default function ReportsPage() {
                                                       <TableCell className="whitespace-normal leading-tight">
                                                         <div className="flex flex-col gap-0.5">
                                                           <span className="font-bold text-slate-700 text-xs break-words line-clamp-1" title={s.schoolName}>{s.schoolName}</span>
-                                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest break-words line-clamp-1" title={s.program}>{s.program}</span>
+                                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest break-words line-clamp-1" title={s.course}>{s.course}</span>
                                                         </div>
                                                       </TableCell>
                                                       <TableCell>
