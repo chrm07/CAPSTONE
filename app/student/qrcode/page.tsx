@@ -91,8 +91,6 @@ export default function StudentQRCodePage() {
 
   const isApproved = application?.status === 'approved'
   const isClaimed = application?.isClaimed
-  const distributionOpen = schedule?.distributionOpen
-  const distributionEnded = !schedule?.distributionOpen && schedule?.distributionStart
 
   return (
     <StudentLayout>
@@ -147,28 +145,7 @@ export default function StudentQRCodePage() {
                 </div>
               ) 
               
-              /* SCENARIO 2: DISTRIBUTION CLOSED (ENDED OR NEVER STARTED) */
-              : !distributionOpen ? (
-                <div className="text-center max-w-sm space-y-4 animate-in zoom-in-95">
-                  <div className="h-24 w-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    {distributionEnded ? (
-                      <Clock className="h-10 w-10 text-slate-400" />
-                    ) : (
-                      <CalendarDays className="h-10 w-10 text-slate-400" />
-                    )}
-                  </div>
-                  <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">
-                    {distributionEnded ? "Distribution Ended" : "Distribution Closed"}
-                  </h2>
-                  <p className="text-slate-500 font-medium">
-                    {distributionEnded 
-                      ? "The distribution has ended. Please wait for the extension to be announced." 
-                      : "The financial assistance schedule is not officially open yet. Your QR code will automatically appear here once the distribution period begins."}
-                  </p>
-                </div>
-              ) 
-              
-              /* SCENARIO 3: APPROVED AND DISTRIBUTION OPEN (READY TO CLAIM) */
+              /* SCENARIO 2: APPROVED (READY TO CLAIM) - Displays immediately upon approval */
               : isApproved ? (
                 <div className="text-center w-full animate-fade-in">
                   <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 inline-block mb-6 relative group">
@@ -190,7 +167,7 @@ export default function StudentQRCodePage() {
                     </div>
                   </div>
                   
-                  {/* Schedule Info */}
+                  {/* Schedule Info - Shows if an admin has set the dates */}
                   {schedule?.distributionStart ? (
                     <div className="w-full bg-indigo-50 border border-indigo-100 rounded-2xl p-5 space-y-4 text-left shadow-sm">
                       <div className="flex items-start gap-3">
@@ -207,7 +184,7 @@ export default function StudentQRCodePage() {
                 </div>
               ) 
               
-              /* SCENARIO 4: PENDING / REJECTED / DRAFT */
+              /* SCENARIO 3: PENDING / REJECTED / DRAFT */
               : (
                 <div className="text-center w-full">
                   <div className="h-[220px] bg-white border border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 mx-auto mb-6 relative overflow-hidden shadow-sm">
@@ -234,8 +211,8 @@ export default function StudentQRCodePage() {
                 <div className="h-6 w-6 rounded-full bg-slate-50 absolute -right-3 shadow-inner z-10 border border-slate-100"></div>
             </div>
 
-            {/* Download button only visible if distribution is open and approved */}
-            {distributionOpen && isApproved && !isClaimed && (
+            {/* Download button only visible if approved and not yet claimed */}
+            {isApproved && !isClaimed && (
               <div className="bg-white p-6">
                 <Button 
                   onClick={handleDownloadQRCode} 
@@ -256,7 +233,7 @@ export default function StudentQRCodePage() {
                 Congrats, you’ve claimed your financial assistance for this cycle.
               </AlertDescription>
             </Alert>
-          ) : distributionOpen && isApproved ? (
+          ) : isApproved ? (
             <Alert className="max-w-md mx-auto border-amber-200 bg-amber-50 rounded-2xl shadow-sm">
               <Info className="h-5 w-5 text-amber-600" />
               <AlertTitle className="text-amber-900 font-black uppercase tracking-tight text-sm">Important Reminder</AlertTitle>

@@ -6,10 +6,14 @@ import { ClientProviders } from "@/components/client-providers"
 
 const inter = Inter({ subsets: ["latin"] })
 
+// 👇 UPDATED METADATA 👇
 export const metadata: Metadata = {
   title: "BTS - Bawat Tahanan May Scholar",
   description: "Municipal scholarship program for deserving students",
-    generator: 'v0.app'
+  generator: 'v0.app',
+  icons: {
+    icon: '/favicon.png', // <-- Changed this line
+  }
 }
 
 export default function RootLayout({
