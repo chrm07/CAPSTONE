@@ -67,17 +67,19 @@ export function HeroSection() {
           
           {/* Status indicator with entrance animation */}
           <div
-            className={`flex items-center justify-center space-x-2 text-sm transition-all duration-700 ease-out ${
+            className={`flex items-center justify-center space-x-2 transition-all duration-700 ease-out ${
               isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
             }`}
             style={{ animationDelay: "0.3s" }}
           >
-            <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-full bg-white/60 backdrop-blur-md border border-emerald-200/50 shadow-sm">
-              <span className="relative flex h-3 w-3">
+            {/* 🔥 FIX: Slightly reduced padding (px-4 py-2) to match the smaller text */}
+            <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-white/60 backdrop-blur-md border border-emerald-200/50 shadow-sm">
+              <span className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
               </span>
-              <span className="text-xs sm:text-sm font-bold text-slate-700 uppercase tracking-widest">
+              {/* 🔥 FIX: Reduced font size to text-[10px] sm:text-xs */}
+              <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-widest">
                 Now accepting applications for {new Date().getFullYear()}
               </span>
             </div>
@@ -86,14 +88,12 @@ export function HeroSection() {
           {/* BTS Logo Picture */}
           <div className="space-y-6 md:space-y-8 w-full flex flex-col items-center justify-center">
             <div className="relative flex items-center justify-center w-full">
-              {/* 🔥 FIX: Changed max-w-[900px] to max-w-[700px] to make the image container smaller */}
               <div
                 className={`transition-all duration-1000 ease-out w-full max-w-[700px] ${
                   isLoaded ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-8 scale-95"
                 }`}
                 style={{ animationDelay: "0.5s" }}
               >
-                {/* 🔥 FIX: Reduced width and height from 900/450 to 700/350 */}
                 <Image
                   src="/images/bts-logo.jpg"
                   alt="Bawat Tahanan May Scholar - BTS Logo"
@@ -107,7 +107,7 @@ export function HeroSection() {
             
             <div className="w-full flex justify-center">
               <p
-                className={`text-lg sm:text-xl md:text-2xl text-gray-600 max-w-3xl mx-auto leading-relaxed text-center transition-all duration-800 ease-out ${
+                className={`text-base sm:text-lg text-gray-600 max-w-3xl mx-auto leading-relaxed text-center transition-all duration-800 ease-out ${
                   isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
                 }`}
                 style={{ animationDelay: "0.7s" }}
