@@ -8,6 +8,7 @@ import Image from "next/image"
 export function HeroSection() {
   const [isLoaded, setIsLoaded] = useState(false)
   const [isTrackLoading, setIsTrackLoading] = useState(false)
+  const [isApplyLoading, setIsApplyLoading] = useState(false) // 🔥 Added state for Apply button
   const router = useRouter()
 
   useEffect(() => {
@@ -24,6 +25,14 @@ export function HeroSection() {
     // Simulate loading delay for smooth transition
     setTimeout(() => {
       router.push("/login")
+    }, 600)
+  }
+
+  const handleApplyClick = () => {
+    setIsApplyLoading(true)
+    // Redirect to register page
+    setTimeout(() => {
+      router.push("/register")
     }, 600)
   }
 
@@ -72,13 +81,11 @@ export function HeroSection() {
             }`}
             style={{ animationDelay: "0.3s" }}
           >
-            {/* 🔥 FIX: Slightly reduced padding (px-4 py-2) to match the smaller text */}
             <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-white/60 backdrop-blur-md border border-emerald-200/50 shadow-sm">
               <span className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
               </span>
-              {/* 🔥 FIX: Reduced font size to text-[10px] sm:text-xs */}
               <span className="text-[10px] sm:text-xs font-bold text-slate-700 uppercase tracking-widest">
                 Now accepting applications for {new Date().getFullYear()}
               </span>
@@ -119,39 +126,44 @@ export function HeroSection() {
 
           {/* Enhanced CTA buttons */}
           <div
-            className={`flex flex-col sm:flex-row gap-6 pt-4 w-full justify-center items-center transition-all duration-800 ease-out ${
+            className={`flex flex-col sm:flex-row gap-4 sm:gap-6 pt-4 w-full justify-center items-center transition-all duration-800 ease-out ${
               isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
             }`}
             style={{ animationDelay: "0.9s" }}
           >
+            {/* 🔥 NEW: Apply Now Button */}
+            <Button
+              size="lg"
+              onClick={handleApplyClick}
+              disabled={isApplyLoading || isTrackLoading}
+              className="relative text-white bg-green-600 hover:bg-green-700 px-12 py-6 text-lg transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 rounded-full disabled:opacity-80 disabled:cursor-not-allowed disabled:transform-none min-w-[200px] font-bold"
+            >
+              {isApplyLoading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Loading...</span>
+                </>
+              ) : (
+                "Apply Now"
+              )}
+            </Button>
+
+            {/* Existing: Track Application Button */}
             <Button
               variant="ghost"
               size="lg"
               onClick={handleTrackClick}
-              disabled={isTrackLoading}
+              disabled={isTrackLoading || isApplyLoading}
               className="relative text-green-700 hover:text-green-800 hover:bg-green-50 px-12 py-6 text-lg transition-all duration-300 border-2 border-green-200/50 hover:border-green-300 shadow-lg hover:shadow-xl transform hover:scale-105 rounded-full disabled:opacity-80 disabled:cursor-not-allowed disabled:transform-none min-w-[200px] font-bold bg-white/50 backdrop-blur-sm"
             >
               {isTrackLoading ? (
                 <>
-                  <svg
-                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-green-600"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
                   <span>Loading...</span>
                 </>
@@ -186,34 +198,17 @@ export function HeroSection() {
       {/* Custom CSS for additional animations */}
       <style jsx>{`
         @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(30px); }
+          to { opacity: 1; transform: translateY(0); }
         }
 
         @keyframes scaleIn {
-          from {
-            opacity: 0;
-            transform: scale(0.9);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
+          from { opacity: 0; transform: scale(0.9); }
+          to { opacity: 1; transform: scale(1); }
         }
 
-        .animate-fade-in-up {
-          animation: fadeInUp 0.6s ease-out forwards;
-        }
-
-        .animate-scale-in {
-          animation: scaleIn 0.5s ease-out forwards;
-        }
+        .animate-fade-in-up { animation: fadeInUp 0.6s ease-out forwards; }
+        .animate-scale-in { animation: scaleIn 0.5s ease-out forwards; }
       `}</style>
     </section>
   )
