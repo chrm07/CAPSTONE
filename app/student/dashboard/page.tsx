@@ -210,10 +210,11 @@ export default function StudentDashboard() {
       };
     }
   } else if (isRejected) {
+    // 🔥 FIX: Changed this to display "Reason: [Admin's reason]"
     messageData = { 
       color: "red", icon: AlertCircle, 
       title: "Action Required: Resubmit Application", 
-      text: "There are issues with your submitted documents. Action required.",
+      text: `Reason: ${currentApp?.remarks || currentApp?.resubmissionReason || "Please review your documents and resubmit."}`,
       actionText: "Update Documents", actionLink: "/student/documents"
     };
   } else if (schedule?.submissionOpen) {
