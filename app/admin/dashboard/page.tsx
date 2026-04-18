@@ -8,13 +8,14 @@ import { FileText, Clock, LayoutDashboard, CheckCircle, XCircle, Calendar, Loade
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar" // 🔥 ADDED AVATAR IMPORTS
 import { useAuth } from "@/contexts/auth-context"
 
 // FIRESTORE REAL-TIME UTILS
 import { collection, onSnapshot, query } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
-// 🔥 MATCHED REPORTS PAGE CARD DESIGN
+// MATCHED REPORTS PAGE CARD DESIGN
 interface StatCardProps {
   title: string; value: number | string; description: string; icon: React.ReactNode; iconBg: string; iconColor: string;
 }
@@ -66,7 +67,7 @@ export default function AdminDashboard() {
       if (user.role === "admin") {
         const currentAdminRole = user.adminRole || "head_admin"
 
-        // ✅ CORRECTED ROUTING LOGIC HERE
+        // CORRECTED ROUTING LOGIC HERE
         if (currentAdminRole === "scanner_staff") {
           router.replace("/admin/scanner-dashboard")
           return
@@ -77,7 +78,7 @@ export default function AdminDashboard() {
           return
         }
 
-        // 1. Listen to Users (To grab names and barangays)
+        // 1. Listen to Users (To grab names, barangays, and profile photos)
         const usersQ = query(collection(db, "users"));
         unsubscribeUsers = onSnapshot(usersQ, (snapshot) => {
           const map: Record<string, any> = {};
@@ -186,7 +187,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* 🔥 NEW MOBILE RESPONSIVE STAT CARDS */}
+        {/* MOBILE RESPONSIVE STAT CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
           <Link href="/admin/applications" className="block transition-transform hover:scale-[1.02] active:scale-[0.98]">
             <StatCard 
@@ -249,13 +250,21 @@ export default function AdminDashboard() {
                   const profile = studentUser.profileData || {};
                   const fullName = application.fullName || profile.fullName || studentUser.name || "Unknown Student";
                   const barangay = application.barangay || profile.barangay || "No Barangay";
+                  
+                  // 🔥 EXTRACT PROFILE PICTURE URL
+                  const profilePicture = profile.studentPhoto || profile.profilePicture || studentUser.profilePicture || null;
 
                   return (
                     <div key={application.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-6 hover:bg-slate-50/80 transition-colors gap-4">
                       <div className="flex items-center gap-4">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 border border-slate-200 shrink-0 text-slate-500 font-bold text-lg">
-                          {(fullName || "?").charAt(0).toUpperCase()}
-                        </div>
+                        {/* 🔥 REPLACED STATIC DIV WITH AVATAR COMPONENT */}
+                        <Avatar className="h-12 w-12 border border-slate-200 shadow-sm shrink-0 bg-slate-100">
+                          <AvatarImage src={profilePicture} className="object-cover" />
+                          <AvatarFallback className="text-slate-500 font-bold text-lg">
+                            {(fullName || "?").charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        
                         <div>
                           <h4 className="font-black text-slate-800 uppercase text-sm tracking-tight">{fullName}</h4>
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:text-xs font-medium text-slate-500 mt-1">
