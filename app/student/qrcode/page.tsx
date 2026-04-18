@@ -119,10 +119,11 @@ export default function StudentQRCodePage() {
               <Badge className="bg-emerald-950/40 hover:bg-emerald-950/40 text-emerald-50 border-none mb-3 px-3 py-1 rounded-xl text-[10px] uppercase tracking-widest font-black backdrop-blur-sm shadow-none">
                 {isClaimed ? "Ticket Used" : "Official Claiming Pass"}
               </Badge>
-              <h2 className="text-2xl font-black text-white uppercase tracking-tight line-clamp-1">
+              {/* 🔥 FIX: Replaced line-clamp-1 with break-words and text-balance to show full long names */}
+              <h2 className="text-2xl font-black text-white uppercase tracking-tight break-words text-balance leading-snug">
                 {profileData.fullName || user?.name}
               </h2>
-              <p className="text-emerald-100/80 font-bold text-xs uppercase tracking-widest mt-1">
+              <p className="text-emerald-100/80 font-bold text-xs uppercase tracking-widest mt-2">
                 ID: {application?.id ? application.id.substring(0, 8) : "Pending"}
               </p>
             </div>
