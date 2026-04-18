@@ -1,7 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server'
-import { getUserByEmailDb, updateUser } from '@/lib/storage'
-
-
+// Notice the new imports here!
+import { 
+  getUserByEmailDb, 
+  updateUser, 
+  createResetTokenDb, 
+  getResetTokenDb, 
+  deleteResetTokenDb 
+} from '@/lib/storage'
 
 function generateToken(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36)
@@ -27,7 +32,9 @@ async function handleRequestReset(email: string) {
   // Generate reset token (1 hour expiration)
   const resetToken = generateToken()
   const expires = Date.now() + 60 * 60 * 1000 
-  resetTokens.set(resetToken, { email, expires })
+  
+  // 🔥 CHANGED: Save to Firebase instead of local memory
+  await createResetTokenDb(resetToken, email, expires)
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`
@@ -47,7 +54,6 @@ async function handleRequestReset(email: string) {
     console.error('Failed to send reset email:', emailError)
   }
 
-  // Console logging and dev return URL (Only in development mode)
   const isDev = process.env.NODE_ENV === 'development'
   if (isDev) {
     console.log('\n========================================')
@@ -73,14 +79,16 @@ async function handleResetPassword(token: string, newPassword: string) {
     return NextResponse.json({ error: 'Token and new password are required' }, { status: 400 })
   }
 
-  const tokenData = resetTokens.get(token)
+  // 🔥 CHANGED: Fetch from Firebase
+  const tokenData = await getResetTokenDb(token)
   
   if (!tokenData) {
     return NextResponse.json({ error: 'Invalid or expired reset token' }, { status: 400 })
   }
 
   if (Date.now() > tokenData.expires) {
-    resetTokens.delete(token)
+    // 🔥 CHANGED: Delete from Firebase
+    await deleteResetTokenDb(token)
     return NextResponse.json({ error: 'Reset token has expired' }, { status: 400 })
   }
 
@@ -92,8 +100,8 @@ async function handleResetPassword(token: string, newPassword: string) {
   // Update password in DB
   await updateUser(user.id, { password: newPassword })
 
-  // Delete used token to prevent reuse
-  resetTokens.delete(token)
+  // 🔥 CHANGED: Delete used token from Firebase to prevent reuse
+  await deleteResetTokenDb(token)
 
   return NextResponse.json({ success: true, message: 'Password has been reset successfully' })
 }
@@ -106,7 +114,8 @@ async function handleVerifyToken(token: string) {
     return NextResponse.json({ error: 'Token is required' }, { status: 400 })
   }
 
-  const tokenData = resetTokens.get(token)
+  // 🔥 CHANGED: Fetch from Firebase
+  const tokenData = await getResetTokenDb(token)
   
   if (!tokenData || Date.now() > tokenData.expires) {
     return NextResponse.json({ valid: false })
@@ -123,7 +132,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { action, email, token, newPassword } = body
 
-    // Route to the appropriate handler based on the action
     switch (action) {
       case 'request':
         return await handleRequestReset(email)
