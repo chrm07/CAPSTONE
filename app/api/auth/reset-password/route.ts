@@ -1,9 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { getUserByEmailDb, updateUser } from '@/lib/storage'
 
-// In-memory storage for reset tokens (will be replaced with database)
-// Note: In-memory maps reset on serverless cold starts. Move to DB before production!
-const resetTokens = new Map<string, { email: string; expires: number }>()
+
 
 function generateToken(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36)
