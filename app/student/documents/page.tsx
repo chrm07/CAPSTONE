@@ -1,440 +1,315 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { StudentLayout } from "@/components/student-layout"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { AdminLayout } from "@/components/admin-layout"
+import { FileText, Clock, LayoutDashboard, CheckCircle, XCircle, Calendar, Loader2, ChevronRight, Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar" // 🔥 ADDED AVATAR IMPORTS
 import { useAuth } from "@/contexts/auth-context"
-import { useToast } from "@/components/ui/use-toast"
-import { 
-  FileText, CheckCircle, AlertCircle, Trash2, 
-  Eye, Loader2, Lock, Download, X, CalendarDays, UploadCloud
-} from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogClose,
-} from "@/components/ui/dialog"
 
-import { collection, query, where, onSnapshot, doc, deleteDoc, addDoc, updateDoc } from "firebase/firestore"
-import { db } from "@/lib/firebase" 
-import { createDocumentDb, createApplicationDb } from "@/lib/storage"
+// FIRESTORE REAL-TIME UTILS
+import { collection, onSnapshot, query } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
-const REQUIRED_DOC_TYPES = [
-  { id: "app_form", name: "Filled-out Application Form" },
-  { id: "reg_form", name: "School Registration Form" },
-  { id: "receipt", name: "Enrollment Receipt" },
-  { id: "id_cert", name: "School ID / Cert of Non-issuance" },
-  { id: "indigency", name: "Original Barangay Indigency" },
-  { id: "clearance", name: "Original Barangay Clearance" },
-  { id: "mayor_letter", name: "Letter to City Mayor" },
-  { id: "voter_cert", name: "Voter's Certification" },
-  { id: "grades", name: "Previous Grades" }
-]
+// MATCHED REPORTS PAGE CARD DESIGN
+interface StatCardProps {
+  title: string; value: number | string; description: string; icon: React.ReactNode; iconBg: string; iconColor: string;
+}
 
-export default function StudentDocumentsPage() {
-  const { user } = useAuth()
-  const { toast } = useToast()
+function StatCard({ title, value, description, icon, iconBg, iconColor }: StatCardProps) {
+  return (
+    <Card className="relative overflow-hidden transition-all duration-200 border border-slate-100 shadow-sm hover:shadow-md rounded-3xl bg-white h-full">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-slate-500">{title}</CardTitle>
+        <div className={`p-2 sm:p-3 rounded-2xl ${iconBg}`}>
+          <div className={iconColor}>{icon}</div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="text-3xl sm:text-4xl font-black text-slate-800">{value}</div>
+        <p className="text-[10px] sm:text-xs font-bold text-slate-400 mt-2 tracking-wide uppercase">{description}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+export default function AdminDashboard() {
+  const { user, isLoading: authLoading } = useAuth()
+  const router = useRouter()
   
-  const [documents, setDocuments] = useState<any[]>([])
-  const [application, setApplication] = useState<any>(null)
-  const [schedule, setSchedule] = useState<any>(null) 
   const [isLoading, setIsLoading] = useState(true)
+  const [stats, setStats] = useState({ totalApplications: 0, pendingApplications: 0, approvedApplications: 0, rejectedApplications: 0 })
+  const [recentApplications, setRecentApplications] = useState<any[]>([])
   
-  // Track individual file uploading states
-  const [uploadingDocs, setUploadingDocs] = useState<Record<string, boolean>>({})
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [viewingDoc, setViewingDoc] = useState<{ url: string; name: string; isPdf: boolean } | null>(null)
+  const [usersMap, setUsersMap] = useState<Record<string, any>>({})
 
   useEffect(() => {
-    if (!user) return
-    setIsLoading(true)
+    let unsubscribeApps: () => void;
+    let unsubscribeUsers: () => void;
 
-    const unsubs: (() => void)[] = []
+    const verifyAndLoad = async () => {
+      if (authLoading) return;
 
-    unsubs.push(onSnapshot(doc(db, "settings", "schedule"), (docSnap) => {
-      if (docSnap.exists()) setSchedule(docSnap.data())
-    }))
+      if (!user) {
+        router.replace("/login")
+        return
+      }
 
-    const docsQ = query(collection(db, "documents"), where("studentId", "==", user.id))
-    unsubs.push(onSnapshot(docsQ, (snapshot) => {
-      const activeDocs = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter((d: any) => !d.isArchived)
-      setDocuments(activeDocs)
-    }))
+      if (user.role === "student") {
+        router.replace("/student/dashboard")
+        return
+      }
 
-    const appQ = query(collection(db, "applications"), where("studentId", "==", user.id))
-    unsubs.push(onSnapshot(appQ, async (snapshot) => {
-      const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-      const activeApp = apps.find((a: any) => !a.isArchived)
-      setApplication(activeApp || null)
-      setIsLoading(false)
-    }))
+      if (user.role === "admin") {
+        const currentAdminRole = user.adminRole || "head_admin"
+
+        // CORRECTED ROUTING LOGIC HERE
+        if (currentAdminRole === "scanner_staff") {
+          router.replace("/admin/scanner-dashboard")
+          return
+        }
+        
+        if (currentAdminRole === "verifier_staff") {
+          router.replace("/admin/verifier-dashboard")
+          return
+        }
+
+        // 1. Listen to Users (To grab names, barangays, and profile photos)
+        const usersQ = query(collection(db, "users"));
+        unsubscribeUsers = onSnapshot(usersQ, (snapshot) => {
+          const map: Record<string, any> = {};
+          snapshot.forEach((doc) => {
+            map[doc.id] = doc.data();
+          });
+          setUsersMap(map);
+        });
+
+        // 2. Listen to Active Applications Only
+        const appsQuery = query(collection(db, "applications"));
+        unsubscribeApps = onSnapshot(appsQuery, (snapshot) => {
+          let total = 0;
+          let pending = 0;
+          let approved = 0;
+          let rejected = 0;
+          const allApps: any[] = [];
+
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            
+            // Ignore archived applications (they belong in history)
+            if (data.isArchived) return;
+
+            // Only count submitted applications
+            if (data.isSubmitted) {
+                allApps.push({ id: doc.id, ...data });
+                
+                total++;
+                if (data.status === "pending") pending++;
+                if (data.status === "approved" || data.isApproved) approved++;
+                if (data.status === "rejected" || data.isRejected) rejected++;
+            }
+          });
+
+          setStats({
+            totalApplications: total,
+            pendingApplications: pending,
+            approvedApplications: approved,
+            rejectedApplications: rejected
+          });
+
+          // Sort by newest first and take the top 10 for recent activity
+          allApps.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+          setRecentApplications(allApps.slice(0, 10));
+          
+          setIsLoading(false);
+        }, (error) => {
+          console.error("Failed to load dashboard data in real-time:", error);
+          setIsLoading(false);
+        });
+      }
+    }
+
+    verifyAndLoad()
 
     return () => {
-      unsubs.forEach(unsub => unsub())
+      if (unsubscribeApps) unsubscribeApps();
+      if (unsubscribeUsers) unsubscribeUsers();
     }
-  }, [user])
+  }, [user, authLoading, router])
 
-  // Automatically locks the portal if submitted (pending or approved). Unlocks if rejected (Resubmit).
-  const isActuallySubmitted = application?.status === 'pending' || application?.status === 'approved';
-  const canUpload = schedule?.submissionOpen && !isActuallySubmitted && !application?.isClaimed;
-  const isLocked = !canUpload;
-  
-  // Calculate completed count purely from database documents
-  const uploadedCount = REQUIRED_DOC_TYPES.filter(req => 
-    documents.some(d => (d.categoryName || d.name) === req.name)
-  ).length;
-  const hasAllDocuments = uploadedCount === REQUIRED_DOC_TYPES.length;
-
-  // Immediate upload to Cloudinary and Firebase DB
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, reqName: string) => {
-    if (!canUpload) return 
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ variant: "destructive", title: "File too large", description: "Please upload a file smaller than 5MB." })
-      e.target.value = ''
-      return
-    }
-
-    setUploadingDocs(prev => ({ ...prev, [reqName]: true }))
-
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "N/A"
     try {
-      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
-      const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
-      if (!cloudName || !uploadPreset) throw new Error("Cloudinary credentials missing")
-
-      const formData = new FormData()
-      formData.append("file", file)
-      formData.append("upload_preset", uploadPreset)
-      formData.append("folder", `bts_documents/${user?.id}`)
-
-      const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`
-      const res = await fetch(cloudinaryUrl, { method: "POST", body: formData })
-
-      if (!res.ok) throw new Error(`Upload failed for ${reqName}`)
-
-      const data = await res.json()
-
-      // Check if replacing an existing DB doc to avoid duplicates
-      const existingDbDoc = documents.find(d => (d.categoryName || d.name) === reqName);
-      if (existingDbDoc) {
-         await deleteDoc(doc(db, "documents", existingDbDoc.id));
-      }
-
-      await createDocumentDb({
-        studentId: user!.id,
-        name: file.name,
-        categoryName: reqName,
-        url: data.secure_url, 
-        type: file.type,
-        uploadedAt: new Date().toISOString()
+      const date = new Date(dateString)
+      return date.toLocaleDateString("en-US", {
+        month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
       })
-
-      toast({ title: "Uploaded", description: `${reqName} uploaded successfully.` })
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Upload Failed", description: error.message })
-    } finally {
-      setUploadingDocs(prev => ({ ...prev, [reqName]: false }))
-      e.target.value = ''
+    } catch (e) {
+      return "Invalid Date"
     }
   }
 
-  // Deletes an already submitted database file
-  const handleDelete = async (docId: string) => {
-    if (!canUpload) return
-    try {
-      await deleteDoc(doc(db, "documents", docId))
-      toast({ title: "Deleted", description: "Document removed successfully. You can now upload a replacement." })
-    } catch (e) { 
-      toast({ variant: "destructive", title: "Error", description: "Could not delete document." }) 
-    }
-  }
-
-  // Submits the application object (locks the documents)
-  const handleSubmitApplication = async () => {
-    if (!user) return
-    setIsSubmitting(true)
-    
-    try {
-      const profile = user.profileData as any || {}
-      const isResubmission = application?.status === 'rejected';
-      
-      if (application?.id) {
-        await updateDoc(doc(db, "applications", application.id), {
-          isSubmitted: true,
-          isApproved: false,
-          isRejected: false,
-          isClaimed: false,
-          status: "pending",
-          round: schedule?.round || 1,
-          updatedAt: new Date().toISOString()
-        })
-      } else {
-        await createApplicationDb({
-          studentId: user.id,
-          status: 'pending',
-          isSubmitted: true,
-          isApproved: false,
-          isRejected: false,
-          isClaimed: false,
-          isArchived: false,
-          round: schedule?.round || 1,
-          school: profile.schoolName || "N/A",
-          course: profile.course || "N/A",
-          yearLevel: profile.yearLevel || "N/A",
-          semester: profile.semester || "N/A",
-          fullName: profile.fullName || user.name || "Unknown",
-          barangay: profile.barangay || "Unknown",
-        })
-      }
-
-      await addDoc(collection(db, "activity_logs"), {
-        studentId: user.id,
-        action: isResubmission ? "Application Resubmitted" : "Application Submitted",
-        details: isResubmission ? "Student updated documents and resubmitted." : "Application documents submitted for review.",
-        timestamp: new Date().toISOString(),
-        type: "submission"
-      })
-
-      await addDoc(collection(db, "notifications"), {
-        to: "admin",
-        senderId: user.id,
-        userId: "admin", 
-        message: isResubmission 
-          ? `${profile.fullName || user.name} has corrected and resubmitted their documents.`
-          : `${profile.fullName || user.name} has submitted a new application.`,
-        link: "/admin/applications",
-        read: false,
-        createdAt: new Date().toISOString()
-      })
-
-      toast({ 
-        title: isResubmission ? "Application Resubmitted!" : "Application Submitted!", 
-        description: "Your documents are successfully locked and under review.", 
-        className: "bg-emerald-600 text-white border-none" 
-      })
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Submission Failed", description: error.message })
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const getThumbnailUrl = (url?: string) => {
-    if (!url) return "";
-    if (url.toLowerCase().endsWith(".pdf")) return url.replace(/\.pdf$/i, ".jpg");
-    return url;
-  };
-
-  if (isLoading) {
+  const currentAdminRole = user?.adminRole || "head_admin"
+  if (authLoading || isLoading || !user || currentAdminRole !== "head_admin") {
     return (
-      <StudentLayout>
-        <div className="flex h-[50vh] flex-col items-center justify-center gap-4 text-emerald-600">
+      <AdminLayout>
+        <div className="flex h-[60vh] flex-col items-center justify-center gap-4 text-emerald-600">
           <Loader2 className="h-10 w-10 animate-spin" />
-          <p className="text-sm font-bold tracking-widest uppercase text-slate-400">Loading Documents...</p>
+          <p className="text-sm font-bold tracking-widest uppercase text-slate-400">Loading Dashboard...</p>
         </div>
-      </StudentLayout>
+      </AdminLayout>
     )
   }
 
   return (
-    <StudentLayout>
-      <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-12">
-        
-        <div className="space-y-2">
-          <h1 className="text-3xl font-black tracking-tight text-emerald-900 uppercase">Document Portal</h1>
-          <p className="text-slate-500 font-medium">Follow the steps below to complete your application.</p>
-        </div>
-
-        {application?.status === 'rejected' && (
-          <Alert variant="destructive" className="bg-red-50 border-red-200 rounded-3xl p-6">
-            <AlertCircle className="h-6 w-6 text-red-600" />
-            <AlertTitle className="text-red-800 font-black uppercase tracking-tight ml-2">Action Required: Application Rejected</AlertTitle>
-            <AlertDescription className="text-red-700 font-medium mt-2 ml-2">
-              <p className="text-lg font-bold">Reason: {application.feedback || application.remarks || application.resubmissionReason || "Please review and update your documents."}</p>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {!schedule?.submissionOpen && (
-          <div className="bg-slate-50 border-2 border-slate-200 p-8 rounded-3xl flex flex-col md:flex-row items-start md:items-center gap-6 shadow-sm animate-in zoom-in-95">
-            <div className="bg-slate-200 p-4 rounded-full shrink-0">
-              <CalendarDays className="h-8 w-8 text-slate-500" />
+    <AdminLayout>
+      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 animate-fade-in pb-12">
+        {/* Hero Header */}
+        <div className="relative overflow-hidden rounded-3xl bg-white border border-slate-200 shadow-sm p-6 sm:p-8">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-400 rounded-full filter blur-[80px] opacity-10 -mr-20 -mt-20 pointer-events-none"></div>
+          <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+            <div className="flex items-center gap-4 sm:gap-6">
+              <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-lg shrink-0">
+                <LayoutDashboard className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 uppercase">Admin Dashboard</h1>
+                <p className="text-sm sm:text-base text-slate-500 font-medium mt-1">Manage active applications and monitor cycle statistics.</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-black text-slate-800 uppercase tracking-tight text-2xl">Submissions Closed</h3>
-              <p className="text-slate-600 font-bold mt-2 text-lg">
-                The application period is not currently active.
-              </p>
-            </div>
-          </div>
-        )}
-
-        <div className="bg-emerald-600 rounded-3xl p-6 text-white shadow-xl shadow-emerald-100 flex flex-col md:flex-row items-center justify-between gap-6 border-4 border-emerald-400/30">
-          <div className="flex items-center gap-5">
-            <div className="h-14 w-14 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center font-black text-2xl border border-white/30 shrink-0">1</div>
-            <div>
-              <h3 className="font-black text-xl uppercase tracking-tight">Step 1: Download Official Form</h3>
-              <p className="text-emerald-50 text-sm font-medium">Download, print, and fill out the BTS Application Form before uploading.</p>
-            </div>
-          </div>
-          <Button asChild className="bg-white text-emerald-600 hover:bg-emerald-50 rounded-2xl font-black h-14 px-8 shrink-0 shadow-lg">
-            <a href="/BTS_Application_Form.pdf" download>
-              <Download className="mr-2 h-5 w-5" /> Download Form
-            </a>
-          </Button>
-        </div>
-
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-black text-emerald-800 uppercase tracking-tight text-sm">Step 2: Upload Progress</h3>
-            <Badge variant="outline" className="font-black text-emerald-700 border-emerald-200 bg-emerald-50 px-3 py-1">
-              {uploadedCount} / {REQUIRED_DOC_TYPES.length} Completed
+            <Badge className="bg-emerald-100 text-emerald-800 text-sm sm:text-lg px-4 py-2 border-none shadow-none font-black uppercase tracking-widest self-start sm:self-auto">
+              Active Cycle
             </Badge>
           </div>
-          <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-            <div className="h-3 rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${(uploadedCount / REQUIRED_DOC_TYPES.length) * 100}%` }} />
-          </div>
         </div>
 
-        <div className={`grid gap-6 md:grid-cols-2 lg:grid-cols-3 ${!schedule?.submissionOpen ? "opacity-60 grayscale" : ""}`}>
-          {REQUIRED_DOC_TYPES.map((req) => {
-            const dbDoc = documents.find(d => (d.categoryName || d.name) === req.name)
-            const hasDoc = !!dbDoc
-            const isUploading = uploadingDocs[req.name]
-            
-            const isPdf = dbDoc?.url?.toLowerCase().endsWith('.pdf')
+        {/* MOBILE RESPONSIVE STAT CARDS */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+          <Link href="/admin/applications" className="block transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <StatCard 
+              title="Total Active Applications" 
+              value={stats.totalApplications} 
+              description="Active Submissions" 
+              icon={<Users className="h-5 w-5 sm:h-6 sm:w-6" />} 
+              iconBg="bg-blue-50" 
+              iconColor="text-blue-600" 
+            />
+          </Link>
+          <Link href="/admin/applications" className="block transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <StatCard 
+              title="Pending Review" 
+              value={stats.pendingApplications} 
+              description={`${stats.totalApplications > 0 ? Math.round((stats.pendingApplications / stats.totalApplications) * 100) : 0}% of Total`} 
+              icon={<Clock className="h-5 w-5 sm:h-6 sm:w-6" />} 
+              iconBg="bg-amber-50" 
+              iconColor="text-amber-600" 
+            />
+          </Link>
+          <Link href="/admin/scholars" className="block transition-transform hover:scale-[1.02] active:scale-[0.98]">
+            <StatCard 
+              title="Approved Scholars" 
+              value={stats.approvedApplications} 
+              description={`${stats.totalApplications > 0 ? Math.round((stats.approvedApplications / stats.totalApplications) * 100) : 0}% Approval Rate`} 
+              icon={<CheckCircle className="h-5 w-5 sm:h-6 sm:w-6" />} 
+              iconBg="bg-emerald-50" 
+              iconColor="text-emerald-600" 
+            />
+          </Link>
+        </div>
 
-            return (
-              <Card key={req.id} className={`rounded-3xl border-2 shadow-sm flex flex-col transition-all ${hasDoc ? 'border-emerald-200 bg-white' : 'border-dashed border-slate-200 bg-slate-50/50'}`}>
-                <CardHeader className="p-5 pb-3 flex flex-row justify-between items-start gap-2 space-y-0">
-                  <CardTitle className="text-sm font-black text-slate-800 leading-tight">{req.name}</CardTitle>
-                  {hasDoc ? <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" /> : <AlertCircle className="h-5 w-5 text-slate-300 shrink-0" />}
-                </CardHeader>
-                
-                <CardContent className="p-5 pt-0 mt-auto">
-                  {isUploading ? (
-                    <div className="flex flex-col items-center justify-center py-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                      <Loader2 className="h-6 w-6 text-emerald-500 animate-spin mb-2" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Uploading...</span>
-                    </div>
-                  ) : hasDoc && dbDoc ? (
-                    <div className="flex flex-col gap-2">
-                      <Badge className="w-fit shadow-none mb-2 font-bold uppercase text-[10px] tracking-widest bg-emerald-50 text-emerald-700 border-emerald-100">
-                        Uploaded
-                      </Badge>
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="flex-1 h-10 rounded-xl font-bold bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50" 
-                          onClick={() => setViewingDoc({ url: dbDoc.url, name: req.name, isPdf: !!isPdf })}
+        {/* Recent Applications Card */}
+        <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white">
+          <div className="h-2 bg-slate-800 w-full" />
+          <CardHeader className="bg-slate-50/50 border-b border-slate-100 pb-6 flex flex-row items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-sm border border-slate-200">
+                <Calendar className="h-5 w-5 text-slate-600" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-black uppercase tracking-tight text-slate-800">Recent Activity</CardTitle>
+                <CardDescription className="font-medium text-slate-500">
+                  Latest active scholarship applications submitted.
+                </CardDescription>
+              </div>
+            </div>
+            <Link href="/admin/applications">
+              <Button variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-bold hidden sm:flex rounded-xl">
+                View All <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-slate-100">
+              {recentApplications.length > 0 ? (
+                recentApplications.map((application) => {
+                  const studentUser = usersMap[application.studentId] || {};
+                  const profile = studentUser.profileData || {};
+                  const fullName = application.fullName || profile.fullName || studentUser.name || "Unknown Student";
+                  const barangay = application.barangay || profile.barangay || "No Barangay";
+                  
+                  // 🔥 EXTRACT PROFILE PICTURE URL
+                  const profilePicture = profile.studentPhoto || profile.profilePicture || studentUser.profilePicture || null;
+
+                  return (
+                    <div key={application.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-6 hover:bg-slate-50/80 transition-colors gap-4">
+                      <div className="flex items-center gap-4">
+                        {/* 🔥 REPLACED STATIC DIV WITH AVATAR COMPONENT */}
+                        <Avatar className="h-12 w-12 border border-slate-200 shadow-sm shrink-0 bg-slate-100">
+                          <AvatarImage src={profilePicture} className="object-cover" />
+                          <AvatarFallback className="text-slate-500 font-bold text-lg">
+                            {(fullName || "?").charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        
+                        <div>
+                          <h4 className="font-black text-slate-800 uppercase text-sm tracking-tight">{fullName}</h4>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:text-xs font-medium text-slate-500 mt-1">
+                            <span>{application.course || profile.course || "No Course"}</span>
+                            <span className="hidden sm:inline">•</span>
+                            <span>{application.school || profile.schoolName || "No School"}</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between gap-2 shrink-0 ml-16 sm:ml-0">
+                        <div className="text-left sm:text-right">
+                          <div className="text-[10px] sm:text-xs font-bold text-slate-700">{formatDate(application.createdAt)}</div>
+                          <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-400 mt-0.5">{barangay}</div>
+                        </div>
+                        <Badge 
+                          variant="outline"
+                          className={`shadow-none font-bold uppercase tracking-widest text-[9px] sm:text-[10px] border-none ${
+                            application.status === "approved" || application.isApproved ? "bg-emerald-100 text-emerald-700" : 
+                            application.status === "rejected" || application.isRejected ? "bg-red-100 text-red-700" : 
+                            "bg-amber-100 text-amber-700"
+                          }`}
                         >
-                          <Eye className="h-4 w-4 mr-2" /> Review
-                        </Button>
-                        {!isLocked && (
-                          <Button 
-                            variant="outline" 
-                            size="icon" 
-                            className="h-10 w-10 rounded-xl text-slate-400 border-slate-200 hover:text-red-600 hover:bg-red-50" 
-                            onClick={() => handleDelete(dbDoc.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                          {application.isApproved ? "Approved" : application.isRejected ? "Rejected" : "Pending"}
+                        </Badge>
                       </div>
                     </div>
-                  ) : (
-                    <div className="mt-2">
-                      {isLocked ? (
-                        <div className="bg-slate-100 rounded-2xl p-4 text-center border border-slate-200">
-                          <Lock className="h-5 w-5 mx-auto mb-1 text-slate-400" />
-                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                            {!schedule?.submissionOpen ? "Submissions Closed" : "Locked"}
-                          </span>
-                        </div>
-                      ) : (
-                        <label className="cursor-pointer group flex flex-col items-center justify-center py-4 border-2 border-dashed rounded-2xl transition-all border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/80">
-                          <UploadCloud className="h-5 w-5 text-emerald-500 mb-1 group-hover:scale-110 transition-transform" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
-                            Select File
-                          </span>
-                          <input type="file" className="hidden" accept=".pdf,image/*" onChange={(e) => handleFileSelect(e, req.name)} disabled={!canUpload || isSubmitting} />
-                        </label>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-
-        {/* SUBMIT CONTAINER & WARNING REMARK */}
-        {canUpload && (
-           <div className={`p-6 md:p-8 rounded-3xl border flex flex-col items-center justify-between gap-6 shadow-sm ${hasAllDocuments ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
-             
-             <div className="flex flex-col md:flex-row w-full items-start md:items-center justify-between gap-6">
-               <div>
-                 <h3 className={`font-black uppercase tracking-tight text-xl md:text-2xl ${hasAllDocuments ? 'text-emerald-900' : 'text-slate-600'}`}>
-                   {application?.status === 'rejected' ? "Correct & Resubmit" : (hasAllDocuments ? "Ready to Submit" : "Submit Application")}
-                 </h3>
-                 <p className={`text-sm md:text-base font-medium mt-1 ${hasAllDocuments ? 'text-emerald-700' : 'text-slate-500'}`}>
-                   {hasAllDocuments 
-                     ? (application?.status === 'rejected' ? "All corrections have been made. Resubmit your application for re-review." : "You have uploaded all required documents. Submit your application to lock them in.")
-                     : `You must select all ${REQUIRED_DOC_TYPES.length} documents before you can submit.`}
-                 </p>
-               </div>
-               <Button 
-                 onClick={handleSubmitApplication} 
-                 disabled={isSubmitting || !hasAllDocuments} 
-                 className={`w-full md:w-auto shrink-0 font-black px-8 h-14 rounded-2xl text-lg shadow-lg active:scale-95 transition-transform ${hasAllDocuments ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
-               >
-                 {isSubmitting ? <Loader2 className="animate-spin mr-2 h-5 w-5" /> : null} 
-                 {isSubmitting ? "Submitting..." : (application?.status === 'rejected' ? "Resubmit Documents" : "Submit All Documents")}
-               </Button>
-             </div>
-
-             {/* WARNING NOTE */}
-             <div className="w-full bg-amber-50/80 border border-amber-200 text-amber-800 p-4 md:p-5 rounded-2xl flex items-start gap-3 mt-2">
-               <AlertCircle className="h-5 w-5 md:h-6 md:w-6 text-amber-600 shrink-0 mt-0.5" />
-               <p className="text-sm md:text-base font-bold leading-snug">
-                 Please ensure you have uploaded the correct documents as they will be reviewed by the admin. Once submitted, your files will be locked and you cannot change them temporarily. You will only be able to edit or upload new files if the admin requires a resubmission.
-               </p>
-             </div>
-
-           </div>
-        )}
-
-        <Dialog open={!!viewingDoc} onOpenChange={(open) => !open && setViewingDoc(null)}>
-          <DialogContent aria-describedby={undefined} className="max-w-5xl w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden bg-slate-900 border-none rounded-3xl shadow-2xl [&>button]:hidden z-[100]">
-            <DialogHeader className="p-4 bg-white border-b border-slate-200 flex flex-row items-center justify-between shrink-0">
-              <DialogTitle className="text-lg font-black uppercase text-emerald-900 truncate pr-4">
-                {viewingDoc?.name}
-              </DialogTitle>
-              <DialogClose className="rounded-full h-10 w-10 flex items-center justify-center hover:bg-slate-100 transition-colors shrink-0">
-                <X className="h-5 w-5 text-slate-500" />
-              </DialogClose>
-            </DialogHeader>
-            <div className="flex-1 w-full bg-slate-900 flex items-center justify-center overflow-hidden">
-              {viewingDoc?.isPdf ? (
-                <iframe src={`${viewingDoc.url}#toolbar=0`} className="w-full h-full border-none bg-white" title="Document Preview" />
+                  )
+                })
               ) : (
-                <img src={viewingDoc?.url} alt="Document Preview" className="w-full h-full object-contain bg-slate-900" />
+                <div className="text-center py-16 text-slate-500 bg-white">
+                  <FileText className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                  <h3 className="font-bold uppercase tracking-widest text-sm">No applications yet</h3>
+                  <p className="text-xs mt-1">Submissions will appear here.</p>
+                </div>
               )}
             </div>
-          </DialogContent>
-        </Dialog>
-
+            <div className="p-4 border-t border-slate-100 bg-slate-50/50 sm:hidden flex justify-center">
+               <Link href="/admin/applications" className="w-full">
+                 <Button variant="outline" className="w-full font-bold rounded-xl h-11">View All Applications</Button>
+               </Link>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </StudentLayout>
+    </AdminLayout>
   )
 }
