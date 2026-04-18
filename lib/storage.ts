@@ -575,3 +575,31 @@ export async function archiveAndResetStudentsDb(barangays: string[]) {
   }
   await batch.commit()
 }
+
+// ============================================================================
+// 8. PASSWORD RESET TOKENS
+// ============================================================================
+
+export type ResetToken = {
+  id: string; // The token string itself
+  email: string;
+  expires: number;
+}
+
+export async function createResetTokenDb(token: string, email: string, expires: number) {
+  // Save the token using the token string as the document ID for super-fast lookups
+  await setDoc(doc(db, "password_resets", token), {
+    id: token,
+    email,
+    expires
+  })
+}
+
+export async function getResetTokenDb(token: string): Promise<ResetToken | null> {
+  const docSnap = await getDoc(doc(db, "password_resets", token))
+  return docSnap.exists() ? (docSnap.data() as ResetToken) : null
+}
+
+export async function deleteResetTokenDb(token: string) {
+  await deleteDoc(doc(db, "password_resets", token))
+}
