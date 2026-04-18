@@ -39,13 +39,14 @@ export function CtaSection() {
           </div>
 
           <div className="flex flex-col gap-3 min-[400px]:flex-row mt-4">
-            <Link href="/login">
+            {/* 🔥 FIX: Changed href to /register and text to Apply Now */}
+            <Link href="/register">
               <Button
                 size="lg"
                 variant="outline"
                 className="border-2 border-white/30 bg-white/10 text-white backdrop-blur-sm transition-all duration-300 hover:bg-white/20 hover:border-white/50 hover:-translate-y-1 rounded-full px-8 font-bold"
               >
-                Track Application
+                Apply Now
               </Button>
             </Link>
           </div>
