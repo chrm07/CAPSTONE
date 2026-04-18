@@ -23,10 +23,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { PermissionGuard } from "@/components/permission-guard"
 import { 
   Plus, Trash2, Mail, CheckCircle, XCircle, 
-  Calendar, AlertCircle, Loader2, Undo, Search, ShieldCheck
+  Calendar, AlertCircle, Loader2, Undo, Search, ShieldCheck, Edit
 } from "lucide-react"
 
-// 🔥 IMPORT FIRESTORE REAL-TIME UTILS
+// IMPORT FIRESTORE REAL-TIME UTILS
 import { collection, onSnapshot } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
@@ -54,7 +54,13 @@ export default function ApprovedEmailsPage() {
 
   const [deletingIds, setDeletingIds] = useState<Record<string, ReturnType<typeof setTimeout>>>({})
 
-  // 🔥 REAL-TIME LISTENER FOR APPROVED EMAILS
+  // State for Edit Dialog
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editingEmail, setEditingEmail] = useState<PreApprovedEmail | null>(null)
+  const [editInput, setEditInput] = useState("")
+  const [isEditLoading, setIsEditLoading] = useState(false)
+
+  // REAL-TIME LISTENER FOR APPROVED EMAILS
   useEffect(() => {
     setIsFetching(true)
     
@@ -72,7 +78,6 @@ export default function ApprovedEmailsPage() {
     })
 
     return () => {
-      // 🔥 FIX: Delay unsubscribe to prevent Firebase internal assertion crash in React Strict Mode
       setTimeout(() => {
         if (typeof unsubscribe === 'function') {
           try {
@@ -83,7 +88,6 @@ export default function ApprovedEmailsPage() {
         }
       }, 10)
       
-      // Cleanup any pending timeouts on unmount
       Object.values(deletingIds).forEach(timer => clearTimeout(timer))
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,7 +113,6 @@ export default function ApprovedEmailsPage() {
     const failedEmails: string[] = []
 
     try {
-      // Use the live local state to check for duplicates instead of re-fetching!
       const currentEmailStrings = emails.map(e => e.email.toLowerCase())
 
       for (const email of uniqueEmails) {
@@ -151,6 +154,57 @@ export default function ApprovedEmailsPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // 🔥 FIX: Safer edit logic by adding the new email and deleting the old one
+  const handleEditEmail = async () => {
+    if (!editingEmail || !editInput.trim()) return
+
+    const newEmail = editInput.trim().toLowerCase()
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+    if (!emailRegex.test(newEmail)) {
+      toast({ variant: "destructive", title: "Invalid Email", description: "Please enter a valid email format." })
+      return
+    }
+
+    if (newEmail === editingEmail.email) {
+      setIsEditDialogOpen(false)
+      return // No changes made
+    }
+
+    const isDuplicate = emails.some(e => e.email.toLowerCase() === newEmail && e.id !== editingEmail.id)
+    if (isDuplicate) {
+      toast({ variant: "destructive", title: "Duplicate Email", description: "This email is already in the approved list." })
+      return
+    }
+
+    setIsEditLoading(true)
+    try {
+      // Safely replace the document
+      await addPreApprovedEmailDb(newEmail)
+      await deletePreApprovedEmailDb(editingEmail.id)
+      
+      toast({ title: "Email Updated", description: "The email has been successfully updated.", className: "bg-emerald-600 text-white border-none" })
+      setIsEditDialogOpen(false)
+      setEditingEmail(null)
+      setEditInput("")
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Update Failed", description: error.message || "Failed to update the email." })
+    } finally {
+      setIsEditLoading(false)
+    }
+  }
+
+  // Remove `disabled` from the button itself and handle the restriction here so the Toast correctly pops up.
+  const openEditDialog = (emailRecord: PreApprovedEmail) => {
+    if (emailRecord.isUsed) {
+      toast({ variant: "destructive", title: "Cannot Edit", description: "This email has already been used for registration and cannot be changed." })
+      return
+    }
+    setEditingEmail(emailRecord)
+    setEditInput(emailRecord.email)
+    setIsEditDialogOpen(true)
   }
 
   const resetDialog = () => {
@@ -290,6 +344,45 @@ export default function ApprovedEmailsPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+
+            <Dialog open={isEditDialogOpen} onOpenChange={(open) => {
+              if (!open) {
+                setIsEditDialogOpen(false)
+                setEditingEmail(null)
+              }
+            }}>
+              <DialogContent className="sm:max-w-md rounded-3xl border-0 shadow-2xl p-0 overflow-hidden bg-white">
+                <div className="h-2 bg-blue-500 w-full" />
+                <DialogHeader className="p-6 border-b border-slate-100">
+                  <DialogTitle className="text-xl font-black uppercase tracking-tight text-slate-800">Edit Email</DialogTitle>
+                  <DialogDescription className="font-medium text-slate-500 mt-1">
+                    Update the pre-approved email address.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="p-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-email" className="text-xs font-bold uppercase tracking-widest text-slate-500">Email Address</Label>
+                    <Input
+                      id="edit-email"
+                      type="email"
+                      value={editInput}
+                      onChange={(e) => setEditInput(e.target.value)}
+                      className="h-12 rounded-xl focus-visible:ring-blue-500 font-medium"
+                    />
+                  </div>
+                </div>
+                <DialogFooter className="p-6 bg-slate-50 border-t border-slate-100">
+                  <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} disabled={isEditLoading} className="rounded-xl font-bold">
+                    Cancel
+                  </Button>
+                  <Button onClick={handleEditEmail} disabled={isEditLoading || !editInput.trim()} className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md">
+                    {isEditLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                    Save Changes
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
@@ -384,7 +477,7 @@ export default function ApprovedEmailsPage() {
                             </TableCell>
                           </TableRow>
                         ) : (
-                          <TableRow key={email.id} className="hover:bg-slate-50/80 transition-colors border-slate-100 group">
+                          <TableRow key={email.id} className="hover:bg-slate-50/80 transition-colors border-slate-100">
                             <TableCell className="pl-8 py-4">
                               <div className="flex items-center gap-3">
                                 <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
@@ -406,17 +499,42 @@ export default function ApprovedEmailsPage() {
                                 {formatDate(email.createdAt)}
                               </span>
                             </TableCell>
+                            
+                            {/* 🔥 FIX: Changed to visually clear, distinct bordered buttons and removed hover hiding */}
                             <TableCell className="text-right pr-8 py-4">
-                              <Button 
-                                variant="ghost" 
-                                size="icon"
-                                onClick={() => triggerDelete(email.id, email.email)}
-                                className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                                title="Delete email"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              <div className="flex items-center justify-end gap-2">
+                                <Button 
+                                  variant="outline" 
+                                  size="icon"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openEditDialog(email)
+                                  }}
+                                  className={`h-8 w-8 rounded-lg shadow-sm border ${
+                                    email.isUsed 
+                                      ? 'border-slate-200 text-slate-300 cursor-not-allowed bg-slate-50' 
+                                      : 'border-blue-200 text-blue-600 hover:text-blue-700 hover:bg-blue-50 bg-white'
+                                  }`}
+                                  title={email.isUsed ? "Cannot edit used email" : "Edit email"}
+                                >
+                                  <Edit className="h-3.5 w-3.5" />
+                                </Button>
+                                
+                                <Button 
+                                  variant="outline" 
+                                  size="icon"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    triggerDelete(email.id, email.email)
+                                  }}
+                                  className="h-8 w-8 rounded-lg shadow-sm border border-red-200 text-red-600 hover:text-red-700 hover:bg-red-50 bg-white"
+                                  title="Delete email"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </TableCell>
+
                           </TableRow>
                         )
                       ))}
