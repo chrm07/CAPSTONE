@@ -22,12 +22,6 @@ import {
 import { collection, query, where, onSnapshot, doc, updateDoc, addDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
-const BARANGAYS = [
-  "Barangay 1", "Barangay 2", "Barangay 3", "Barangay 4", "Barangay 5",
-  "Barangay 6", "Barangay 7", "Barangay 8", "Barangay 9", "Barangay 10",
-  "Barangay 11", "Barangay 12", "Barangay 13"
-];
-
 const REQUIRED_DOCS = [
   "Filled-out Application Form",
   "School Registration Form",
@@ -53,6 +47,9 @@ export default function ApplicationsPage() {
   const [barangayFilter, setBarangayFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
+  
+  // 🔥 NEW: Dynamic Barangays State
+  const [barangaysList, setBarangaysList] = useState<string[]>([]);
 
   const [selectedApp, setSelectedApp] = useState<any | null>(null);
   const [studentDocs, setStudentDocs] = useState<any[]>([]);
@@ -76,6 +73,7 @@ export default function ApplicationsPage() {
     let unsubscribeUsers: () => void;
     let unsubscribeApps: () => void;
     let unsubscribeHistory: () => void;
+    let unsubscribeBarangays: () => void; // 🔥 NEW
 
     const setupRealtimeListeners = () => {
       setIsLoading(true);
@@ -166,6 +164,20 @@ export default function ApplicationsPage() {
         loadedStates.history = true;
         processData();
       });
+
+      // 🔥 NEW: Real-time Barangay Sync
+      unsubscribeBarangays = onSnapshot(doc(db, "settings", "barangays"), (docSnap) => {
+        if (docSnap.exists() && docSnap.data().list) {
+          const rawList = docSnap.data().list;
+          const namesList: string[] = rawList.map((item: any) => {
+            if (typeof item === "string") return item;
+            if (item && typeof item.name === "string") return item.name;
+            return String(item);
+          });
+          namesList.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+          setBarangaysList(namesList);
+        }
+      });
     };
 
     setupRealtimeListeners();
@@ -174,6 +186,7 @@ export default function ApplicationsPage() {
       if (unsubscribeUsers) unsubscribeUsers();
       if (unsubscribeApps) unsubscribeApps();
       if (unsubscribeHistory) unsubscribeHistory();
+      if (unsubscribeBarangays) unsubscribeBarangays(); // 🔥 NEW
     };
   }, []);
 
@@ -401,7 +414,8 @@ export default function ApplicationsPage() {
                       </SelectTrigger>
                       <SelectContent className="rounded-xl max-h-[300px] border-slate-200 shadow-xl">
                         <SelectItem value="all" className="font-bold cursor-pointer py-3">All Barangays</SelectItem>
-                        {BARANGAYS.map(brgy => (
+                        {/* 🔥 NEW: Dynamic Barangays */}
+                        {barangaysList.map(brgy => (
                           <SelectItem key={brgy} value={brgy} className="font-medium cursor-pointer py-2">
                             {brgy}
                           </SelectItem>
