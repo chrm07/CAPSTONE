@@ -1,28 +1,33 @@
 "use client"
 
+import Image from "next/image"
+
 export function TestimonialsSection() {
   const testimonials = [
     {
-      quote: "The scholarship program changed my life. I was able to focus on my studies without worrying about finances.",
-      name: "Maria Santos",
-      role: "COMPUTER SCIENCE STUDENT",
+      quote: "This scholarship guided me through my journey as a medical technology student, helping me excel academically and preparing me for a meaningful career in the healthcare field.",
+      name: "Loren Corro",
+      role: "MEDTECH STUDENT",
+      image: "/images/loren.jpg" // Replace with actual image path when available
     },
     {
-      quote: "Thanks to this scholarship, I graduated with honors and secured a job at a top engineering firm.",
-      name: "Juan Dela Cruz",
-      role: "ENGINEERING STUDENT", 
+      quote: "As a psychology student, this scholarship helped me excel academically and opened the door to valuable career opportunities.",
+      name: "Jean Laurence Bautista",
+      role: "PSYCHOLOGY STUDENT", 
+      image: "/images/jean.jpg" // Replace with actual image path when available
     },
     {
-      quote: "The mentorship program connected me with professionals in my field who guided me through my academic journey.",
-      name: "Ana Reyes",
-      role: "MEDICAL STUDENT",
+      quote: "This scholarship supported my journey as an IT student",
+      name: "Charmee Botero",
+      role: "IT STUDENT",
+      image: "/images/charm2.png" // Replace with actual image path when available
     }
   ]
 
   return (
     <section className="relative w-full bg-[#11773d] py-20 px-4 md:px-6 overflow-hidden">
       
-      {/* 🔥 NEW: Background Design Elements */}
+      {/* Background Design Elements */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         {/* Subtle grid pattern overlay */}
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:32px_32px]"></div>
@@ -84,7 +89,15 @@ export function TestimonialsSection() {
 
               {/* User Info Profile */}
               <div className="flex items-center gap-4 mt-auto">
-                <div className="w-12 h-12 bg-white/20 border border-white/30 rounded-full flex-shrink-0 backdrop-blur-sm"></div>
+                {/* 🔥 NEW: Added Next/Image component to display the profile picture */}
+                <div className="relative w-12 h-12 flex-shrink-0 rounded-full border-2 border-white/30 overflow-hidden shadow-md bg-white/20">
+                  <Image 
+                    src={testimonial.image} 
+                    alt={testimonial.name}
+                    fill
+                    className="object-cover"
+                  />
+                </div>
                 <div>
                   <h4 className="text-white font-bold text-lg leading-tight drop-shadow-sm">
                     {testimonial.name}
