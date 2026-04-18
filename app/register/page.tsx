@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-import { useState, useCallback, useEffect } from "react"
+import React, { useState, useCallback, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import Cropper from "react-easy-crop" 
@@ -15,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
 import { ArrowLeft, ArrowRight, CheckCircle, User, School, Lock, Mail, Eye, EyeOff, AlertTriangle, X, Upload, Loader2 } from "lucide-react"
 
-import { doc, getDoc } from "firebase/firestore"
+import { doc, onSnapshot } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
 type FormData = {
@@ -46,23 +45,23 @@ const validatePassword = (pass: string) => {
 }
 
 export default function RegisterPage() {
-  const router = useRouter()
-  const { toast } = useToast()
-  const [isLoading, setIsLoading] = useState(false)
-  const [step, setStep] = useState(0)
-  const [emailValidated, setEmailValidated] = useState(false)
-  const [errors, setErrors] = useState<Partial<FormData>>({})
+  const router = useRouter();
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+  const [step, setStep] = useState(0);
+  const [emailValidated, setEmailValidated] = useState(false);
+  const [errors, setErrors] = useState<Partial<FormData>>({});
   
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const totalSteps = 4
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const totalSteps = 4;
 
-  const [imageToCrop, setImageToCrop] = useState<string | null>(null)
-  const [crop, setCrop] = useState({ x: 0, y: 0 })
-  const [zoom, setZoom] = useState(1)
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null)
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
   
-  const [barangaysList, setBarangaysList] = useState<string[]>([])
+  const [barangaysList, setBarangaysList] = useState<string[]>([]);
 
   const [formData, setFormData] = useState<FormData>({
     email: "",
@@ -85,202 +84,202 @@ export default function RegisterPage() {
     confirmPassword: "",
     isPWD: false,
     acceptTerms: false, 
-  })
+  });
 
   useEffect(() => {
-    const fetchBarangays = async () => {
-      try {
-        const docRef = doc(db, "settings", "barangays");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists() && docSnap.data().list) {
-          const rawList = docSnap.data().list;
-          
-          const namesList: string[] = rawList.map((item: any) => {
-            if (typeof item === "string") return item;
-            if (item && typeof item.name === "string") return item.name;
-            return String(item);
-          });
-          
-          namesList.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-          
-          setBarangaysList(namesList);
-        } else {
-          setBarangaysList([...Array(14)].map((_, i) => `Barangay ${i + 1}`));
-        }
-      } catch (error) {
-        console.error("Error fetching barangays:", error);
-        setBarangaysList([...Array(14)].map((_, i) => `Barangay ${i + 1}`));
+    const docRef = doc(db, "settings", "barangays");
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists() && docSnap.data().list) {
+        const rawList = docSnap.data().list;
+        const namesList: string[] = rawList.map((item: any) => {
+          if (typeof item === "string") return item;
+          if (item && typeof item.name === "string") return item.name;
+          return String(item);
+        });
+        namesList.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+        setBarangaysList(namesList);
+      } else {
+        setBarangaysList(["Barangay 1", "Barangay 2", "Barangay 3"]);
       }
-    };
-    fetchBarangays();
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const updateField = (field: keyof FormData, value: string | boolean) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+    setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: "" }))
+      setErrors((prev) => ({ ...prev, [field]: "" }));
     }
-  }
+  };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+    const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) { 
-        toast({ title: "File too large", description: "Please upload an image smaller than 5MB", variant: "destructive" })
-        return
+        toast({ title: "File too large", description: "Please upload an image smaller than 5MB", variant: "destructive" });
+        return;
       }
-      const reader = new FileReader()
+      const reader = new FileReader();
       reader.onloadend = () => {
-        setImageToCrop(reader.result as string) 
-      }
-      reader.readAsDataURL(file)
+        setImageToCrop(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
-    e.target.value = ""
-  }
+    e.target.value = "";
+  };
 
   const onCropComplete = useCallback((_croppedArea: any, croppedAreaPixels: any) => {
-    setCroppedAreaPixels(croppedAreaPixels)
-  }, [])
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
 
   const saveCroppedImage = async () => {
     try {
       if (imageToCrop && croppedAreaPixels) {
-        const croppedImage = await getCroppedImg(imageToCrop, croppedAreaPixels)
-        updateField("studentPhoto", croppedImage)
-        setImageToCrop(null) 
+        const croppedImage = await getCroppedImg(imageToCrop, croppedAreaPixels);
+        updateField("studentPhoto", croppedImage);
+        setImageToCrop(null);
       }
     } catch (e) {
-      console.error(e)
+      console.error(e);
     }
-  }
+  };
 
   const validateEmail = async () => {
-    const cleanEmail = formData.email.trim().toLowerCase()
+    const cleanEmail = formData.email.trim().toLowerCase();
     
     if (!cleanEmail) {
-      setErrors({ email: "Please enter your email address" })
-      toast({ variant: "destructive", title: "Email required", description: "Please enter your email address" })
-      return false
+      setErrors({ email: "Please enter your email address" });
+      toast({ variant: "destructive", title: "Email required", description: "Please enter your email address" });
+      return false;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(cleanEmail)) {
-      setErrors({ email: "Please enter a valid email address" })
-      toast({ variant: "destructive", title: "Invalid email", description: "Please enter a valid email address" })
-      return false
+      setErrors({ email: "Please enter a valid email address" });
+      toast({ variant: "destructive", title: "Invalid email", description: "Please enter a valid email address" });
+      return false;
     }
 
-    setIsLoading(true)
+    setIsLoading(true);
     try {
       const response = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "verify_email", email: cleanEmail }),
-      })
+      });
       
-      const data = await response.json()
+      const data = await response.json();
       
       if (!response.ok) {
-        let errorMessage = data.error || "Verification failed"
-        if (errorMessage.toLowerCase().includes("already")) errorMessage = "Email already registered"
-        else if (errorMessage.toLowerCase().includes("authorized") || errorMessage.toLowerCase().includes("approved")) errorMessage = "Your email is not approved"
+        let errorMessage = data.error || "Verification failed";
+        if (errorMessage.toLowerCase().includes("already")) errorMessage = "Email already registered";
+        else if (errorMessage.toLowerCase().includes("authorized") || errorMessage.toLowerCase().includes("approved")) errorMessage = "Your email is not approved";
 
-        setErrors({ email: errorMessage })
-        toast({ variant: "destructive", title: "Verification Failed", description: errorMessage })
-        setIsLoading(false)
-        return false 
+        setErrors({ email: errorMessage });
+        toast({ variant: "destructive", title: "Verification Failed", description: errorMessage });
+        setIsLoading(false);
+        return false;
       }
       
-      setEmailValidated(true)
-      setErrors({ email: "" })
-      setIsLoading(false)
-      return true
+      setEmailValidated(true);
+      setErrors({ email: "" });
+      setIsLoading(false);
+      return true;
       
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to verify email with the server." })
-      setIsLoading(false)
-      return false
+      toast({ variant: "destructive", title: "Error", description: "Failed to verify email with the server." });
+      setIsLoading(false);
+      return false;
     }
-  }
+  };
 
   const validateCurrentStep = async () => {
-    if (step === 0) return await validateEmail()
+    if (step === 0) return await validateEmail();
 
-    const newErrors: Partial<FormData> = {}
-    let isValid = true
+    const newErrors: Partial<FormData> = {};
+    let isValid = true;
 
     if (step === 1) {
-      const requiredFields: (keyof FormData)[] = ["studentPhoto", "firstName", "lastName", "address", "contactNumber", "age", "gender", "barangay"]
+      const requiredFields: (keyof FormData)[] = ["studentPhoto", "firstName", "lastName", "address", "contactNumber", "age", "gender", "barangay"];
       requiredFields.forEach((field) => {
         if (!formData[field] || String(formData[field]).trim() === "") {
-          newErrors[field] = "This field is required"
-          isValid = false
+          newErrors[field] = "This field is required";
+          isValid = false;
         }
-      })
+      });
       
       if (formData.contactNumber) {
         if (formData.contactNumber.length !== 10) {
-          newErrors.contactNumber = "Mobile number must be exactly 10 digits"
-          isValid = false
+          newErrors.contactNumber = "Mobile number must be exactly 10 digits";
+          isValid = false;
         } else if (!formData.contactNumber.startsWith("9")) {
-          newErrors.contactNumber = "Mobile number must start with 9"
-          isValid = false
+          newErrors.contactNumber = "Mobile number must start with 9";
+          isValid = false;
         }
       }
 
       if (formData.gender === "Others" && (!formData.otherGender || formData.otherGender.trim() === "")) {
-        newErrors.otherGender = "Please specify your gender"
-        isValid = false
+        newErrors.otherGender = "Please specify your gender";
+        isValid = false;
       }
     }
 
     if (step === 2) {
-      const requiredFields: (keyof FormData)[] = ["school", "program", "yearLevel", "semester"]
+      const requiredFields: (keyof FormData)[] = ["school", "program", "yearLevel", "semester"];
       requiredFields.forEach((field) => {
         if (!formData[field] || String(formData[field]).trim() === "") {
-          newErrors[field] = "This field is required"
-          isValid = false
+          newErrors[field] = "This field is required";
+          isValid = false;
         }
-      })
+      });
       if (formData.program === "Other" && (!formData.otherProgram || formData.otherProgram.trim() === "")) {
-        newErrors.otherProgram = "Please specify your program"
-        isValid = false
+        newErrors.otherProgram = "Please specify your program";
+        isValid = false;
       }
     }
 
     if (step === 3) {
       if (!formData.password || !validatePassword(formData.password)) {
-        newErrors.password = "Password must be at least 8 characters with at least one uppercase letter, one lowercase letter, and one number."
-        isValid = false
+        newErrors.password = "Password must be at least 8 characters with at least one uppercase letter, one lowercase letter, and one number.";
+        isValid = false;
       }
       if (formData.password !== formData.confirmPassword) {
-        newErrors.confirmPassword = "Passwords do not match"
-        isValid = false
+        newErrors.confirmPassword = "Passwords do not match";
+        isValid = false;
       }
       if (!formData.acceptTerms) {
-        toast({ variant: "destructive", title: "Terms and Conditions required", description: "You must agree to the Terms of Service and Privacy Policy to create an account." })
-        isValid = false
+        toast({ variant: "destructive", title: "Terms and Conditions required", description: "You must agree to the Terms of Service and Privacy Policy to create an account." });
+        isValid = false;
       }
     }
 
-    setErrors(newErrors)
-    return isValid
-  }
+    setErrors(newErrors);
+    return isValid;
+  };
 
   const handleNext = async () => {
-    if (await validateCurrentStep() && step < totalSteps - 1) setStep(step + 1)
-  }
+    const isValid = await validateCurrentStep();
+    if (isValid && step < totalSteps - 1) {
+      setStep(step + 1);
+    }
+  };
 
   const handlePrevious = () => {
-    if (step > 0) setStep(step - 1)
-  }
+    if (step > 0) setStep(step - 1);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (step < 3) { handleNext(); return }
-    if (!await validateCurrentStep()) return
+    e.preventDefault();
+    if (step < 3) { 
+      handleNext(); 
+      return; 
+    }
+    
+    const isValid = await validateCurrentStep();
+    if (!isValid) return;
 
-    setIsLoading(true)
+    setIsLoading(true);
     try {
       const response = await fetch("/api/register", {
         method: "POST",
@@ -303,35 +302,35 @@ export default function RegisterPage() {
           semester: formData.semester, 
           isPWD: formData.isPWD, 
         }),
-      })
+      });
 
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || "Registration failed")
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Registration failed");
 
-      toast({ title: "Registration successful", description: "Your account has been created. Please login.", variant: "success" })
-      setTimeout(() => router.push("/login"), 2000)
+      toast({ title: "Registration successful", description: "Your account has been created. Please login.", variant: "success" });
+      setTimeout(() => router.push("/login"), 2000);
       
     } catch (error: any) {
-      const errorMsg = error.message?.toLowerCase() || ""
-      const isDuplicate = errorMsg.includes("already")
-      const isUnapproved = errorMsg.includes("authorized") || errorMsg.includes("approved")
+      const errorMsg = error.message?.toLowerCase() || "";
+      const isDuplicate = errorMsg.includes("already");
+      const isUnapproved = errorMsg.includes("authorized") || errorMsg.includes("approved");
       
       if (isDuplicate || isUnapproved) {
-        setStep(0)
-        setEmailValidated(false)
+        setStep(0);
+        setEmailValidated(false);
       }
       
-      let finalMessage = error.message || "An error occurred during registration. Please try again."
-      if (isDuplicate) finalMessage = "Email already registered"
-      else if (isUnapproved) finalMessage = "Your email is not approved"
+      let finalMessage = error.message || "An error occurred during registration. Please try again.";
+      if (isDuplicate) finalMessage = "Email already registered";
+      else if (isUnapproved) finalMessage = "Your email is not approved";
 
-      toast({ variant: "destructive", title: "Registration failed", description: finalMessage })
+      toast({ variant: "destructive", title: "Registration failed", description: finalMessage });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
-  const progressPercentage = (step / totalSteps) * 100
+  const progressPercentage = (step / totalSteps) * 100;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50">
@@ -371,7 +370,6 @@ export default function RegisterPage() {
         </div>
       )}
 
-      {/* Global Registration Nav Bar (No Logo) */}
       <header className="w-full bg-green-600 shadow-xl">
         <div className="container flex h-16 items-center px-4 md:px-8">
           <Link href="/" className="flex items-center space-x-2 text-white hover:text-green-100 transition-colors">
@@ -389,7 +387,6 @@ export default function RegisterPage() {
               <div className="h-full bg-green-500 transition-all duration-700" style={{ width: `${progressPercentage}%` }} />
             </div>
 
-            {/* Restored Original Green Header layout with Icon Grid */}
             <div className="px-8 py-8 text-center bg-green-600 text-white">
               <div className="flex items-center justify-center gap-6">
                 <div className="flex items-center gap-3">
@@ -737,7 +734,6 @@ export default function RegisterPage() {
                       </div>
                     )}
 
-                    {/* Perfectly aligned flexbox navigation buttons */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="w-full pt-8 border-t border-slate-100 mt-8">
                       {step > 0 ? (
                         <Button type="button" variant="outline" onClick={handlePrevious} className="flex items-center justify-center gap-2 h-12 px-6 rounded-xl bg-transparent border-slate-300 text-slate-600 hover:bg-slate-50">
@@ -780,5 +776,5 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
