@@ -1,4 +1,4 @@
-import { collection, doc, setDoc, getDoc, getDocs, query, where, updateDoc, addDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, setDoc, getDoc, getDocs, query, where, updateDoc, addDoc, deleteDoc, writeBatch, limit, orderBy, startAfter } from "firebase/firestore";
 import { db } from "./firebase";
 
 // ============================================================================
@@ -166,8 +166,8 @@ export async function getUserDb(userId: string) {
   }
 }
 
-export async function getAllUsersDb() {
-  const q = query(collection(db, "users"))
+export async function getAllUsersDb(maxLimit = 1000) {
+  const q = query(collection(db, "users"), limit(maxLimit))
   const snapshot = await getDocs(q)
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
 }
@@ -178,8 +178,8 @@ export async function getUserByEmailDb(email: string): Promise<User | null> {
   return snapshot.empty ? null : (snapshot.docs[0].data() as User)
 }
 
-export async function getScholarsDb(): Promise<User[]> {
-  const q = query(collection(db, "users"), where("role", "==", "student"))
+export async function getScholarsDb(maxLimit = 1000): Promise<User[]> {
+  const q = query(collection(db, "users"), where("role", "==", "student"), limit(maxLimit))
   const snapshot = await getDocs(q)
   return snapshot.docs.map(doc => doc.data() as User)
 }
@@ -255,14 +255,16 @@ export async function deleteStaffMemberDb(userId: string): Promise<boolean> {
 // 3. APPLICATIONS & PRE-APPROVED EMAILS
 // ============================================================================
 
-export async function getApplicationsDb(): Promise<Application[]> {
-  const snapshot = await getDocs(collection(db, "applications"))
-  return snapshot.docs.map(doc => doc.data() as Application).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+export async function getApplicationsDb(maxLimit = 1000): Promise<Application[]> {
+  const q = query(collection(db, "applications"), orderBy("createdAt", "desc"), limit(maxLimit))
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map(doc => doc.data() as Application)
 }
 
 export async function getRecentApplicationsDb(limitCount = 5): Promise<Application[]> {
-  const apps = await getApplicationsDb()
-  return apps.slice(0, limitCount)
+  const q = query(collection(db, "applications"), orderBy("createdAt", "desc"), limit(limitCount))
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map(doc => doc.data() as Application)
 }
 
 export async function getStudentApplicationDb(studentId: string): Promise<Application | null> {
@@ -488,9 +490,10 @@ export async function deleteNotificationDb(id: string) {
 // 7. ARCHIVING & HISTORY
 // ============================================================================
 
-export async function getApplicationHistoryDb(): Promise<any[]> {
-  const snapshot = await getDocs(collection(db, "application_history"))
-  return snapshot.docs.map(doc => doc.data()).sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+export async function getApplicationHistoryDb(maxLimit = 1000): Promise<any[]> {
+  const q = query(collection(db, "application_history"), orderBy("completedAt", "desc"), limit(maxLimit))
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map(doc => doc.data())
 }
 
 export async function getStudentApplicationHistoryDb(studentId: string): Promise<any[]> {
