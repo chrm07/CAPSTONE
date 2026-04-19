@@ -14,40 +14,22 @@ if (!admin.apps.length) {
     credential: admin.credential.cert({
       projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      // Handle newline characters in the private key
       privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
     }),
   });
 }
 
-// 🔥 FIX: Utility to ensure we only ever save primitive strings to Firestore. 
-// This completely strips out raw Files, nulls, or {} objects that crash the database.
 const sanitizeString = (val: any) => (typeof val === 'string' ? val.trim() : '');
 
 export async function POST(request: Request) {
   try {
     const body = await request.json()
     const { 
-      action,
-      studentPhoto, 
-      firstName, 
-      middleName, 
-      lastName, 
-      email, 
-      password, 
-      address, 
-      contactNumber, 
-      age, 
-      gender,
-      barangay, 
-      schoolName, 
-      program, 
-      yearLevel,
-      semester,
-      isPWD 
+      action, studentPhoto, firstName, middleName, lastName, email, password, 
+      address, contactNumber, age, gender, barangay, schoolName, program, 
+      yearLevel, semester, isPWD 
     } = body
 
-    // Force strict sanitization to prevent false rejections
     const cleanEmail = email ? email.trim().toLowerCase() : "";
 
     if (action === "verify_email") {
@@ -61,7 +43,7 @@ export async function POST(request: Request) {
 
       const isApproved = await isEmailPreApprovedDb(cleanEmail)
       if (!isApproved) {
-        return NextResponse.json({ error: "This email is not authorized to register. Please contact the administrator." }, { status: 403 })
+        return NextResponse.json({ error: "This email is not authorized to register." }, { status: 403 })
       }
 
       return NextResponse.json({ success: true }) 
@@ -71,7 +53,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Secondary verification just before final creation
     const allUsers = await getAllUsersDb();
     const isDuplicate = allUsers.some((u: any) => u.email?.toLowerCase() === cleanEmail);
     if (isDuplicate) {
@@ -84,15 +65,12 @@ export async function POST(request: Request) {
     }
 
     try {
-      // Apply strict sanitization to all name fields
       const safeFirstName = sanitizeString(firstName);
       const safeMiddleName = sanitizeString(middleName);
       const safeLastName = sanitizeString(lastName);
       const combinedFullName = `${safeFirstName} ${safeMiddleName ? safeMiddleName + " " : ""}${safeLastName}`.trim()
 
-      // ==========================================
-      // STEP 1: Create User in Firebase Auth
-      // ==========================================
+      // STEP 1: AUTH RECOVERY
       try {
         await admin.auth().createUser({
           email: cleanEmail,
@@ -103,7 +81,6 @@ export async function POST(request: Request) {
         console.error("Firebase Auth Error:", authError);
         
         if (authError.code === 'auth/email-already-exists') {
-          // GHOST ACCOUNT RECOVERY FIX
           try {
             const existingAuthRecord = await admin.auth().getUserByEmail(cleanEmail);
             await admin.auth().updateUser(existingAuthRecord.uid, {
@@ -112,25 +89,23 @@ export async function POST(request: Request) {
             });
             console.log("Ghost account recovered successfully.");
           } catch (updateErr) {
-            return NextResponse.json({ error: "This email is stuck in the auth system. Please contact the admin." }, { status: 409 });
+            return NextResponse.json({ error: "This email is stuck in the auth system." }, { status: 409 });
           }
         } else {
           return NextResponse.json({ error: authError.message || "Failed to create secure login account" }, { status: 400 });
         }
       }
 
-      // ==========================================
-      // STEP 2: Save to Firestore
-      // ==========================================
-      
-      // Apply strict sanitization to ALL database inputs to prevent crashes
-      const newUser = await createUserDb({
+      // 🔥 STEP 2: THE ULTIMATE NEXT.JS PROXY FIX
+      // We stringify and parse the object to instantly destroy any Next.js wrappers,
+      // leaving only a pure, simple Javascript object that Firebase can read without panicking.
+      const pureUserPayload = JSON.parse(JSON.stringify({
         name: combinedFullName, 
         email: cleanEmail,
         password: sanitizeString(password), 
         role: "student",
         profileData: {
-          studentPhoto: sanitizeString(studentPhoto), // Drops {} file objects
+          studentPhoto: sanitizeString(studentPhoto),
           firstName: safeFirstName,
           middleName: safeMiddleName,
           lastName: safeLastName,
@@ -146,13 +121,15 @@ export async function POST(request: Request) {
           course: sanitizeString(program),  
           yearLevel: sanitizeString(yearLevel),
           semester: sanitizeString(semester), 
-          isPWD: !!isPWD, // Safely converts to a primitive boolean
+          isPWD: !!isPWD,
           studentId: `STU-${Date.now()}`,
         },
-      })
+      }));
 
-      // Generate the base application document
-      await createApplicationDb({
+      const newUser = await createUserDb(pureUserPayload)
+
+      // Do the exact same stripping for the Application document
+      const pureApplicationPayload = JSON.parse(JSON.stringify({
         studentId: newUser.id,
         firstName: safeFirstName,
         middleName: safeMiddleName,
@@ -166,15 +143,16 @@ export async function POST(request: Request) {
         school: sanitizeString(schoolName),
         barangay: sanitizeString(barangay),
         isPWD: !!isPWD,
-        status: "draft" as any, // Cast to any to bypass strict type-checks for draft vs pending
+        status: "draft",
         isSubmitted: false, 
         isApproved: false,
         isRejected: false,
         isClaimed: false,
         isArchived: false, 
-      } as any)
+      }));
 
-      // Mark the email as consumed
+      await createApplicationDb(pureApplicationPayload as any)
+
       await markEmailAsUsedDb(cleanEmail);
 
       return NextResponse.json({ success: true, message: "Registration successful" }, { status: 201 })
