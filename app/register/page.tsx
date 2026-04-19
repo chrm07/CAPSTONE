@@ -47,8 +47,8 @@ const validatePassword = (pass: string) => {
 }
 
 // 🚨 Replace these with your Cloudinary details
-const CLOUDINARY_CLOUD_NAME = "YOUR_CLOUD_NAME"; 
-const CLOUDINARY_UPLOAD_PRESET = "YOUR_UNSIGNED_PRESET"; 
+const CLOUDINARY_CLOUD_NAME = "dwi1qb8we"; 
+const CLOUDINARY_UPLOAD_PRESET = "bts_portal_docs"; 
 
 export default function RegisterPage() {
   const router = useRouter();
