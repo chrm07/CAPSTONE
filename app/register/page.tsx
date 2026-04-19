@@ -17,6 +17,7 @@ import { ArrowLeft, ArrowRight, CheckCircle, User, School, Lock, Mail, Eye, EyeO
 import { doc, onSnapshot } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
+// --- TYPES & CONSTANTS ---
 type FormData = {
   email: string
   studentPhoto: string 
@@ -40,13 +41,19 @@ type FormData = {
   acceptTerms: boolean 
 }
 
+const TOTAL_STEPS = 4;
 const validatePassword = (pass: string) => {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(pass);
 }
 
+// 🚨 Replace these with your Cloudinary details
+const CLOUDINARY_CLOUD_NAME = "YOUR_CLOUD_NAME"; 
+const CLOUDINARY_UPLOAD_PRESET = "YOUR_UNSIGNED_PRESET"; 
+
 export default function RegisterPage() {
   const router = useRouter();
   const { toast } = useToast();
+  
   const [isLoading, setIsLoading] = useState(false);
   const [step, setStep] = useState(0);
   const [emailValidated, setEmailValidated] = useState(false);
@@ -54,7 +61,6 @@ export default function RegisterPage() {
   
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const totalSteps = 4;
 
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -64,26 +70,10 @@ export default function RegisterPage() {
   const [barangaysList, setBarangaysList] = useState<string[]>([]);
 
   const [formData, setFormData] = useState<FormData>({
-    email: "",
-    studentPhoto: "",
-    firstName: "",
-    middleName: "",
-    lastName: "",
-    address: "",
-    contactNumber: "",
-    age: "",
-    gender: "",
-    otherGender: "",
-    barangay: "",
-    school: "",
-    program: "",
-    otherProgram: "",
-    yearLevel: "",
-    semester: "",
-    password: "",
-    confirmPassword: "",
-    isPWD: false,
-    acceptTerms: false, 
+    email: "", studentPhoto: "", firstName: "", middleName: "", lastName: "",
+    address: "", contactNumber: "", age: "", gender: "", otherGender: "",
+    barangay: "", school: "", program: "", otherProgram: "", yearLevel: "",
+    semester: "", password: "", confirmPassword: "", isPWD: false, acceptTerms: false, 
   });
 
   useEffect(() => {
@@ -111,6 +101,23 @@ export default function RegisterPage() {
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: "" }));
     }
+  };
+
+  const uploadToCloudinary = async (base64Image: string): Promise<string> => {
+    if (!base64Image.startsWith("data:image")) return base64Image;
+
+    const data = new FormData();
+    data.append("file", base64Image);
+    data.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+      method: "POST",
+      body: data,
+    });
+    
+    if (!res.ok) throw new Error("Failed to upload image to Cloudinary.");
+    const json = await res.json();
+    return json.secure_url; 
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -260,7 +267,7 @@ export default function RegisterPage() {
 
   const handleNext = async () => {
     const isValid = await validateCurrentStep();
-    if (isValid && step < totalSteps - 1) {
+    if (isValid && step < TOTAL_STEPS - 1) {
       setStep(step + 1);
     }
   };
@@ -281,11 +288,15 @@ export default function RegisterPage() {
 
     setIsLoading(true);
     try {
+      // 1. Upload Base64 image to Cloudinary to get a short URL
+      const photoUrl = await uploadToCloudinary(formData.studentPhoto);
+
+      // 2. Submit clean payload to API
       const response = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          studentPhoto: formData.studentPhoto, 
+          studentPhoto: photoUrl, 
           firstName: formData.firstName,
           middleName: formData.middleName,
           lastName: formData.lastName,
@@ -330,7 +341,7 @@ export default function RegisterPage() {
     }
   };
 
-  const progressPercentage = (step / totalSteps) * 100;
+  const progressPercentage = (step / TOTAL_STEPS) * 100;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50">
@@ -405,7 +416,7 @@ export default function RegisterPage() {
                 <div className="hidden sm:flex items-center space-x-2">
                   <span className="text-lg font-semibold text-white">Step {step + 1}</span>
                   <span className="text-white/80">/</span>
-                  <span className="text-white/80">{totalSteps}</span>
+                  <span className="text-white/80">{TOTAL_STEPS}</span>
                 </div>
               </div>
             </div>
