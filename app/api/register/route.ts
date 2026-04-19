@@ -76,7 +76,7 @@ export async function POST(request: Request) {
       const safeLastName = sanitizeString(lastName);
       const combinedFullName = `${safeFirstName} ${safeMiddleName ? safeMiddleName + " " : ""}${safeLastName}`.trim()
 
-      // 1. CREATE AUTH ACCOUNT (Securely hashes password)
+      // 1. CREATE AUTH ACCOUNT 
       try {
         await admin.auth().createUser({
           email: cleanEmail,
@@ -103,13 +103,14 @@ export async function POST(request: Request) {
       }
 
       // 2. CREATE FIRESTORE USER DOCUMENT
-      // 🚨 Security Note: 'password' is intentionally omitted here!
+      // Put the password back so NextAuth can verify against it
       const userPayload = sanitizeForFirestore({
         name: combinedFullName, 
         email: cleanEmail,
+        password: sanitizeString(password), // 👈 Added password back here!
         role: "student",
         profileData: {
-          studentPhoto: sanitizeString(studentPhoto), // Now receiving a clean Cloudinary URL!
+          studentPhoto: sanitizeString(studentPhoto), 
           firstName: safeFirstName,
           middleName: safeMiddleName,
           lastName: safeLastName,
