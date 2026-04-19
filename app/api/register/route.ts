@@ -19,7 +19,11 @@ if (!admin.apps.length) {
   });
 }
 
+// --- UTILS ---
 const sanitizeString = (val: any) => (typeof val === 'string' ? val.trim() : '');
+
+// Removes undefined values and Next.js proxies to prevent Firestore errors
+const sanitizeForFirestore = (obj: any) => JSON.parse(JSON.stringify(obj));
 
 export async function POST(request: Request) {
   try {
@@ -32,6 +36,7 @@ export async function POST(request: Request) {
 
     const cleanEmail = email ? email.trim().toLowerCase() : "";
 
+    // --- HANDLE EMAIL VERIFICATION STEP ---
     if (action === "verify_email") {
       if (!cleanEmail) return NextResponse.json({ error: "Email is required" }, { status: 400 })
       
@@ -49,6 +54,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true }) 
     }
 
+    // --- HANDLE FULL REGISTRATION SUBMISSION ---
     if (!firstName || !lastName || !cleanEmail || !password) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
@@ -70,7 +76,7 @@ export async function POST(request: Request) {
       const safeLastName = sanitizeString(lastName);
       const combinedFullName = `${safeFirstName} ${safeMiddleName ? safeMiddleName + " " : ""}${safeLastName}`.trim()
 
-      // STEP 1: AUTH RECOVERY
+      // 1. CREATE AUTH ACCOUNT (Securely hashes password)
       try {
         await admin.auth().createUser({
           email: cleanEmail,
@@ -96,16 +102,14 @@ export async function POST(request: Request) {
         }
       }
 
-      // 🔥 STEP 2: THE ULTIMATE NEXT.JS PROXY FIX
-      // We stringify and parse the object to instantly destroy any Next.js wrappers,
-      // leaving only a pure, simple Javascript object that Firebase can read without panicking.
-      const pureUserPayload = JSON.parse(JSON.stringify({
+      // 2. CREATE FIRESTORE USER DOCUMENT
+      // 🚨 Security Note: 'password' is intentionally omitted here!
+      const userPayload = sanitizeForFirestore({
         name: combinedFullName, 
         email: cleanEmail,
-        password: sanitizeString(password), 
         role: "student",
         profileData: {
-          studentPhoto: sanitizeString(studentPhoto),
+          studentPhoto: sanitizeString(studentPhoto), // Now receiving a clean Cloudinary URL!
           firstName: safeFirstName,
           middleName: safeMiddleName,
           lastName: safeLastName,
@@ -124,12 +128,12 @@ export async function POST(request: Request) {
           isPWD: !!isPWD,
           studentId: `STU-${Date.now()}`,
         },
-      }));
+      });
 
-      const newUser = await createUserDb(pureUserPayload)
+      const newUser = await createUserDb(userPayload)
 
-      // Do the exact same stripping for the Application document
-      const pureApplicationPayload = JSON.parse(JSON.stringify({
+      // 3. CREATE FIRESTORE APPLICATION DOCUMENT
+      const applicationPayload = sanitizeForFirestore({
         studentId: newUser.id,
         firstName: safeFirstName,
         middleName: safeMiddleName,
@@ -149,10 +153,11 @@ export async function POST(request: Request) {
         isRejected: false,
         isClaimed: false,
         isArchived: false, 
-      }));
+      });
 
-      await createApplicationDb(pureApplicationPayload as any)
+      await createApplicationDb(applicationPayload as any)
 
+      // 4. MARK EMAIL AS USED
       await markEmailAsUsedDb(cleanEmail);
 
       return NextResponse.json({ success: true, message: "Registration successful" }, { status: 201 })
